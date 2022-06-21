@@ -26,6 +26,8 @@ use risingwave_sqlparser::ast::{
 mod expr;
 mod relation;
 mod scalar;
+mod shrink;
+pub use shrink::*;
 
 #[derive(Clone)]
 pub struct Table {

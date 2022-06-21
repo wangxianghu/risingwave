@@ -26,7 +26,7 @@ mod tests {
     use risingwave_frontend::FrontendOpts;
     use risingwave_sqlparser::ast::Statement;
     use risingwave_sqlparser::parser::Parser;
-    use risingwave_sqlsmith::{sql_gen, Table};
+    use risingwave_sqlsmith::{shrink_query, sql_gen, Table};
 
     /// Create the tables defined in testdata.
     async fn create_tables(session: Arc<SessionImpl>) -> Vec<Table> {
@@ -149,4 +149,30 @@ mod tests {
     generate_sqlsmith_test! { 29 }
     generate_sqlsmith_test! { 30 }
     generate_sqlsmith_test! { 31 }
+
+    #[tokio::test]
+    async fn shrink_test() {
+        let frontend = LocalFrontend::new(FrontendOpts::default()).await;
+        let session = frontend.session_ref();
+
+        let panic_sql = "";
+        let panic_msg = "";
+
+        let context: OptimizerContextRef =
+            OptimizerContext::new(session.clone(), Arc::from(panic_sql.clone())).into();
+
+        let query = {
+            let statements = Parser::parse_sql(&panic_sql)
+                .unwrap_or_else(|_| panic!("Failed to parse SQL: {}", panic_sql));
+            let stmt = statements[0].clone();
+            match stmt.clone() {
+                Statement::Query(query) => *query,
+                _ => unreachable!(),
+            }
+        };
+
+        let shrunk_query = shrink_query(query, panic_msg, session, context);
+        let shrunk_sql = format!("{}", Statement::Query(Box::new(shrunk_query)));
+        println!("{}", shrunk_sql);
+    }
 }
