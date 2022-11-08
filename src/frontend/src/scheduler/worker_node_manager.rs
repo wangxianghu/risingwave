@@ -124,9 +124,7 @@ impl WorkerNodeManager {
     pub fn get_workers_by_parallel_unit_ids(
         &self,
         parallel_unit_ids: &[ParallelUnitId],
-        snapshot_align_epoch: u64,
     ) -> SchedulerResult<Vec<WorkerNode>> {
-        self.wait_align_epoch(snapshot_align_epoch);
         if parallel_unit_ids.is_empty() {
             return Err(SchedulerError::EmptyWorkerNodes);
         }

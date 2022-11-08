@@ -104,14 +104,10 @@ where
                 match self.rx.message().await {
                     Ok(resp) => {
                         let a: SubscribeResponse = resp.clone().unwrap();
-                        println!("{:?}", a.version);
                         if resp.is_none() {
                             tracing::error!("Stream of notification terminated.");
                             self.re_subscribe().await;
                             continue;
-                        }
-                        if a.align_epoch.is_some() {
-                            println!("ss:{:?}", a.align_epoch.unwrap().align_epoch);
                         }
                         self.observer_states.handle_notification(resp.unwrap());
                     }

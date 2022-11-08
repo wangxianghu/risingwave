@@ -226,7 +226,7 @@ impl LocalQueryExecution {
                     // `exchange_source`.
                     let (parallel_unit_ids, vnode_bitmaps): (Vec<_>, Vec<_>) =
                         vnode_bitmaps.clone().into_iter().unzip();
-                    let workers = self.front_env.worker_node_manager().get_workers_by_parallel_unit_ids(&parallel_unit_ids,self.snapshot.get_align_epoch())?;
+                    let workers = self.front_env.worker_node_manager().get_workers_by_parallel_unit_ids(&parallel_unit_ids)?;
 
                     for (idx, (worker_node, partition)) in
                         (workers.into_iter().zip_eq(vnode_bitmaps.into_iter())).enumerate()
@@ -336,7 +336,7 @@ impl LocalQueryExecution {
             PlanNodeType::BatchLookupJoin => {
                 let mut node_body = execution_plan_node.node.clone();
                 match &mut node_body {
-                    NodeBody::LookupJoin(node) => {
+                    NodeBody::LocalLookupJoin(node) => {
                         let side_table_desc = node
                             .inner_side_table_desc
                             .as_ref()
