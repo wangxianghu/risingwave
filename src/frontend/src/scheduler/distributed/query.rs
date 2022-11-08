@@ -36,7 +36,7 @@ use crate::scheduler::distributed::StageExecution;
 use crate::scheduler::plan_fragmenter::{Query, StageId, ROOT_TASK_ID, ROOT_TASK_OUTPUT_ID};
 use crate::scheduler::worker_node_manager::WorkerNodeManagerRef;
 use crate::scheduler::{
-    ExecutionContextRef, HummockSnapshotGuard, PinnedHummockSnapshot, SchedulerError,
+    ExecutionContextRef, PinnedQueryHummockSnapshot, QueryHummockSnapshotGuard, SchedulerError,
     SchedulerResult,
 };
 
@@ -115,7 +115,7 @@ impl QueryExecution {
         &self,
         context: ExecutionContextRef,
         worker_node_manager: WorkerNodeManagerRef,
-        pinned_snapshot: HummockSnapshotGuard,
+        pinned_snapshot: QueryHummockSnapshotGuard,
         compute_client_pool: ComputeClientPoolRef,
         catalog_reader: CatalogReader,
         query_execution_info: QueryExecutionInfoRef,
@@ -189,7 +189,7 @@ impl QueryExecution {
 
     fn gen_stage_executions(
         &self,
-        pinned_snapshot: &PinnedHummockSnapshot,
+        pinned_snapshot: &PinnedQueryHummockSnapshot,
         context: ExecutionContextRef,
         worker_node_manager: WorkerNodeManagerRef,
         compute_client_pool: ComputeClientPoolRef,
@@ -209,7 +209,7 @@ impl QueryExecution {
 
             let stage_exec = Arc::new(StageExecution::new(
                 // TODO: Add support to use current epoch when needed
-                pinned_snapshot.get_committed_epoch(),
+                pinned_snapshot.get_snapshot(),
                 self.query.stage_graph.stages[&stage_id].clone(),
                 worker_node_manager.clone(),
                 self.shutdown_tx.clone(),
@@ -225,7 +225,7 @@ impl QueryExecution {
 }
 
 impl QueryRunner {
-    async fn run(mut self, pinned_snapshot: PinnedHummockSnapshot) {
+    async fn run(mut self, pinned_snapshot: PinnedQueryHummockSnapshot) {
         // Start leaf stages.
         let leaf_stages = self.query.leaf_stages();
         for stage_id in &leaf_stages {
@@ -580,13 +580,13 @@ pub(crate) mod tests {
         };
         let workers = vec![worker1, worker2, worker3];
         let worker_node_manager = Arc::new(WorkerNodeManager::mock(workers));
-        worker_node_manager.insert_fragment_mapping(0, vec![]);
+        worker_node_manager.insert_fragment_mapping(0, vec![], None);
         let catalog = Arc::new(parking_lot::RwLock::new(Catalog::default()));
         catalog.write().insert_table_id_mapping(table_id, 0);
         let catalog_reader = CatalogReader::new(catalog);
         // Break the plan node into fragments.
         let fragmenter = BatchPlanFragmenter::new(worker_node_manager, catalog_reader);
-        fragmenter.split(batch_exchange_node3.clone()).unwrap()
+        fragmenter.split(batch_exchange_node3.clone(), 0).unwrap()
     }
 
     fn generate_parallel_units(start_id: u32, node_id: u32) -> Vec<ParallelUnit> {

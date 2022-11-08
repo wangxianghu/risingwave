@@ -39,6 +39,9 @@ pub enum SchedulerError {
 
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+
+    #[error("{0}")]
+    Timeout(String),
 }
 
 /// Only if the code is Internal, change it to Execution Error. Otherwise convert to Rpc Error.

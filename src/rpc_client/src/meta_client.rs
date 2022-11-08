@@ -659,6 +659,7 @@ impl HummockMetaClient for MetaClient {
             min_snapshot: Some(HummockSnapshot {
                 committed_epoch: pinned_epochs,
                 current_epoch: pinned_epochs,
+                need_align: false,
             }),
         };
         self.inner.unpin_snapshot_before(req).await?;

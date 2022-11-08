@@ -33,7 +33,7 @@ use crate::planner::Planner;
 use crate::scheduler::plan_fragmenter::Query;
 use crate::scheduler::{
     BatchPlanFragmenter, DistributedQueryStream, ExecutionContext, ExecutionContextRef,
-    HummockSnapshotGuard, LocalQueryExecution, LocalQueryStream,
+    LocalQueryExecution, LocalQueryStream, QueryHummockSnapshotGuard,
 };
 use crate::session::{OptimizerContext, OptimizerContextRef, SessionImpl};
 use crate::PlanRef;
@@ -96,6 +96,14 @@ pub async fn handle_query(
     let session = context.session_ctx.clone();
     let query_start_time = Instant::now();
 
+    let hummock_snapshot_manager = session.env().hummock_snapshot_manager();
+    let plan_fragmenter = BatchPlanFragmenter::new(
+        session.env().worker_node_manager_ref(),
+        session.env().catalog_reader().clone(),
+    );
+    let query_id = plan_fragmenter.query_id.clone();
+    let pinned_snapshot = hummock_snapshot_manager.acquire(&query_id).await?;
+
     // Subblock to make sure PlanRef (an Rc) is dropped before `await` below.
     let (query, query_mode, output_schema) = {
         let (plan, query_mode, schema) = gen_batch_query_plan(&session, context.into(), stmt)?;
@@ -105,11 +113,12 @@ pub async fn handle_query(
             plan.explain_to_string()?,
             query_mode
         );
-        let plan_fragmenter = BatchPlanFragmenter::new(
-            session.env().worker_node_manager_ref(),
-            session.env().catalog_reader().clone(),
-        );
-        (plan_fragmenter.split(plan)?, query_mode, schema)
+
+        (
+            plan_fragmenter.split(plan, pinned_snapshot.get_align_epoch())?,
+            query_mode,
+            schema,
+        )
     };
     tracing::trace!("Generated query after plan fragmenter: {:?}", &query);
 
@@ -127,9 +136,6 @@ pub async fn handle_query(
     let mut row_stream = {
         // Acquire hummock snapshot for execution.
         // TODO: if there's no table scan, we don't need to acquire snapshot.
-        let hummock_snapshot_manager = session.env().hummock_snapshot_manager();
-        let query_id = query.query_id().clone();
-        let pinned_snapshot = hummock_snapshot_manager.acquire(&query_id).await?;
 
         match query_mode {
             QueryMode::Local => PgResponseStream::LocalQuery(DataChunkToRowSetAdapter::new(
@@ -221,7 +227,7 @@ fn to_statement_type(stmt: &Statement) -> Result<StatementType> {
 pub async fn distribute_execute(
     session: Arc<SessionImpl>,
     query: Query,
-    pinned_snapshot: HummockSnapshotGuard,
+    pinned_snapshot: QueryHummockSnapshotGuard,
 ) -> Result<DistributedQueryStream> {
     let execution_context: ExecutionContextRef = ExecutionContext::new(session.clone()).into();
     let query_manager = session.env().query_manager().clone();
@@ -235,7 +241,7 @@ pub async fn distribute_execute(
 async fn local_execute(
     session: Arc<SessionImpl>,
     query: Query,
-    pinned_snapshot: HummockSnapshotGuard,
+    pinned_snapshot: QueryHummockSnapshotGuard,
 ) -> Result<LocalQueryStream> {
     let front_env = session.env();
 

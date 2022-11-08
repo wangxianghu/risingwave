@@ -56,7 +56,9 @@ use crate::scheduler::plan_fragmenter::{
 };
 use crate::scheduler::worker_node_manager::WorkerNodeManagerRef;
 use crate::scheduler::SchedulerError::TaskExecutionError;
-use crate::scheduler::{ExecutionContextRef, SchedulerError, SchedulerResult};
+use crate::scheduler::{
+    ExecutionContextRef, QueryHummockSnapshot, SchedulerError, SchedulerResult,
+};
 
 const TASK_SCHEDULING_PARALLELISM: usize = 10;
 
@@ -105,7 +107,7 @@ struct TaskStatusHolder {
 }
 
 pub struct StageExecution {
-    epoch: u64,
+    epoch: QueryHummockSnapshot,
     stage: QueryStageRef,
     worker_node_manager: WorkerNodeManagerRef,
     tasks: Arc<HashMap<TaskId, TaskStatusHolder>>,
@@ -123,7 +125,7 @@ pub struct StageExecution {
 }
 
 struct StageRunner {
-    epoch: u64,
+    snapshot: QueryHummockSnapshot,
     state: Arc<RwLock<StageState>>,
     stage: QueryStageRef,
     worker_node_manager: WorkerNodeManagerRef,
@@ -157,7 +159,7 @@ impl TaskStatusHolder {
 impl StageExecution {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        epoch: u64,
+        snapshot: QueryHummockSnapshot,
         stage: QueryStageRef,
         worker_node_manager: WorkerNodeManagerRef,
         msg_sender: Sender<QueryMessage>,
@@ -171,7 +173,7 @@ impl StageExecution {
             .map(|task_id| (task_id, TaskStatusHolder::new(task_id)))
             .collect();
         Self {
-            epoch,
+            epoch: snapshot,
             stage,
             worker_node_manager,
             tasks: Arc::new(tasks),
@@ -191,7 +193,7 @@ impl StageExecution {
         match cur_state {
             StageState::Pending { msg_sender } => {
                 let runner = StageRunner {
-                    epoch: self.epoch,
+                    snapshot: self.epoch.clone(),
                     stage: self.stage.clone(),
                     worker_node_manager: self.worker_node_manager.clone(),
                     tasks: self.tasks.clone(),
@@ -311,7 +313,7 @@ impl StageRunner {
             // the task.
             // We schedule the task to the worker node that owns the data partition.
             let parallel_unit_ids = vnode_bitmaps.keys().cloned().collect_vec();
-            let workers = self.worker_node_manager.get_workers_by_parallel_unit_ids(&parallel_unit_ids)?;
+            let workers = self.worker_node_manager.get_workers_by_parallel_unit_ids(&parallel_unit_ids,self.snapshot.align_epoch)?;
 
             for (i, (parallel_unit_id, worker)) in parallel_unit_ids
                 .into_iter()
@@ -452,7 +454,7 @@ impl StageRunner {
             &plan_node,
             &task_id,
             self.ctx.to_batch_task_context(),
-            self.epoch,
+            self.snapshot.committed_epoch,
         );
 
         let executor = executor.build().await?;
@@ -513,7 +515,7 @@ impl StageRunner {
             .get_table_by_id(table_id)
             .map(|table| {
                 self.worker_node_manager
-                    .get_fragment_mapping(&table.fragment_id)
+                    .get_fragment_mapping(&table.fragment_id, self.snapshot.align_epoch)
             })
             .ok()
             .flatten()
@@ -527,7 +529,6 @@ impl StageRunner {
             .node_body
             .as_ref()
             .expect("fail to get node body");
-
         let vnode_mapping = match node_body {
             Insert(insert_node) => self.get_vnode_mapping(&insert_node.associated_mview_id.into()),
             Update(update_node) => self.get_vnode_mapping(&update_node.associated_mview_id.into()),
@@ -539,9 +540,10 @@ impl StageRunner {
             Some(parallel_unit_ids) => {
                 let parallel_unit_ids =
                     parallel_unit_ids.into_iter().sorted().dedup().collect_vec();
-                let candidates = self
-                    .worker_node_manager
-                    .get_workers_by_parallel_unit_ids(&parallel_unit_ids)?;
+                let candidates = self.worker_node_manager.get_workers_by_parallel_unit_ids(
+                    &parallel_unit_ids,
+                    self.snapshot.align_epoch,
+                )?;
                 Some(candidates.choose(&mut rand::thread_rng()).unwrap().clone())
             }
             None => None,
@@ -640,7 +642,7 @@ impl StageRunner {
 
         let t_id = task_id.task_id;
         let stream_status = compute_client
-            .create_task(task_id, plan_fragment, self.epoch)
+            .create_task(task_id, plan_fragment, self.snapshot.committed_epoch)
             .await
             .map_err(|e| anyhow!(e))?;
 

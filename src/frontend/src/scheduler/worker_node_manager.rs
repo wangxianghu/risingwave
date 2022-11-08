@@ -13,13 +13,17 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex, RwLock};
 
 use rand::seq::SliceRandom;
 use risingwave_common::bail;
 use risingwave_common::types::{ParallelUnitId, VnodeMapping};
+use risingwave_common::util::epoch::INVALID_EPOCH;
 use risingwave_common::util::worker_util::get_pu_to_worker_mapping;
 use risingwave_pb::common::WorkerNode;
+use risingwave_pb::meta::AlignEpoch;
 
 use crate::catalog::FragmentId;
 use crate::scheduler::{SchedulerError, SchedulerResult};
@@ -27,6 +31,9 @@ use crate::scheduler::{SchedulerError, SchedulerResult};
 /// `WorkerNodeManager` manages live worker nodes and table vnode mapping information.
 pub struct WorkerNodeManager {
     inner: RwLock<WorkerNodeManagerInner>,
+    align_epoch: AtomicU64,
+    update_epoch_tx: Mutex<Sender<()>>,
+    update_epoch_rx: Mutex<Receiver<()>>,
 }
 
 #[derive(Default)]
@@ -46,8 +53,12 @@ impl Default for WorkerNodeManager {
 
 impl WorkerNodeManager {
     pub fn new() -> Self {
+        let (update_epoch_tx, update_epoch_rx) = channel();
         Self {
             inner: RwLock::new(WorkerNodeManagerInner::default()),
+            align_epoch: AtomicU64::new(INVALID_EPOCH),
+            update_epoch_tx: Mutex::new(update_epoch_tx),
+            update_epoch_rx: Mutex::new(update_epoch_rx),
         }
     }
 
@@ -57,7 +68,13 @@ impl WorkerNodeManager {
             worker_nodes,
             fragment_vnode_mapping: HashMap::new(),
         });
-        Self { inner }
+        let (update_epoch_tx, update_epoch_rx) = channel();
+        Self {
+            inner,
+            align_epoch: AtomicU64::new(INVALID_EPOCH),
+            update_epoch_tx: Mutex::new(update_epoch_tx),
+            update_epoch_rx: Mutex::new(update_epoch_rx),
+        }
     }
 
     pub fn list_worker_nodes(&self) -> Vec<WorkerNode> {
@@ -107,7 +124,9 @@ impl WorkerNodeManager {
     pub fn get_workers_by_parallel_unit_ids(
         &self,
         parallel_unit_ids: &[ParallelUnitId],
+        snapshot_align_epoch: u64,
     ) -> SchedulerResult<Vec<WorkerNode>> {
+        self.wait_align_epoch(snapshot_align_epoch);
         if parallel_unit_ids.is_empty() {
             return Err(SchedulerError::EmptyWorkerNodes);
         }
@@ -126,7 +145,12 @@ impl WorkerNodeManager {
         Ok(workers)
     }
 
-    pub fn get_fragment_mapping(&self, fragment_id: &FragmentId) -> Option<VnodeMapping> {
+    pub fn get_fragment_mapping(
+        &self,
+        fragment_id: &FragmentId,
+        snapshot_align_epoch: u64,
+    ) -> Option<VnodeMapping> {
+        self.wait_align_epoch(snapshot_align_epoch);
         self.inner
             .read()
             .unwrap()
@@ -135,7 +159,13 @@ impl WorkerNodeManager {
             .cloned()
     }
 
-    pub fn insert_fragment_mapping(&self, fragment_id: FragmentId, vnode_mapping: VnodeMapping) {
+    pub fn insert_fragment_mapping(
+        &self,
+        fragment_id: FragmentId,
+        vnode_mapping: VnodeMapping,
+        align_epoch: Option<AlignEpoch>,
+    ) {
+        self.update_align_epoch(align_epoch);
         self.inner
             .write()
             .unwrap()
@@ -144,7 +174,13 @@ impl WorkerNodeManager {
             .unwrap();
     }
 
-    pub fn update_fragment_mapping(&self, fragment_id: FragmentId, vnode_mapping: VnodeMapping) {
+    pub fn update_fragment_mapping(
+        &self,
+        fragment_id: FragmentId,
+        vnode_mapping: VnodeMapping,
+        align_epoch: Option<AlignEpoch>,
+    ) {
+        self.update_align_epoch(align_epoch);
         self.inner
             .write()
             .unwrap()
@@ -153,13 +189,39 @@ impl WorkerNodeManager {
             .unwrap();
     }
 
-    pub fn remove_fragment_mapping(&self, fragment_id: &FragmentId) {
+    pub fn remove_fragment_mapping(
+        &self,
+        fragment_id: &FragmentId,
+        align_epoch: Option<AlignEpoch>,
+    ) {
+        self.update_align_epoch(align_epoch);
         self.inner
             .write()
             .unwrap()
             .fragment_vnode_mapping
             .remove(fragment_id)
             .unwrap();
+    }
+
+    pub fn wait_align_epoch(&self, snapshot_align_epoch: u64) {
+        loop {
+            if self
+                .align_epoch
+                .load(Ordering::Relaxed)
+                .ge(&snapshot_align_epoch)
+            {
+                return;
+            }
+            self.update_epoch_rx.lock().unwrap().recv().unwrap()
+        }
+    }
+
+    pub fn update_align_epoch(&self, align_epoch: Option<AlignEpoch>) {
+        if let Some(align_epoch) = align_epoch {
+            self.align_epoch
+                .fetch_max(align_epoch.align_epoch, Ordering::Relaxed);
+            self.update_epoch_tx.lock().unwrap().send(()).unwrap();
+        }
     }
 }
 

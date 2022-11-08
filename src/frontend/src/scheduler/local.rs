@@ -38,7 +38,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use super::plan_fragmenter::{PartitionInfo, QueryStageRef};
-use super::HummockSnapshotGuard;
+use super::QueryHummockSnapshotGuard;
 use crate::optimizer::plan_node::PlanNodeType;
 use crate::scheduler::plan_fragmenter::{ExecutionPlanNode, Query, StageId};
 use crate::scheduler::task_context::FrontendBatchTaskContext;
@@ -71,7 +71,7 @@ pub struct LocalQueryExecution {
     query: Query,
     front_env: FrontendEnv,
     // The snapshot will be released when LocalQueryExecution is dropped.
-    snapshot: HummockSnapshotGuard,
+    snapshot: QueryHummockSnapshotGuard,
     auth_context: Arc<AuthContext>,
 }
 
@@ -80,7 +80,7 @@ impl LocalQueryExecution {
         query: Query,
         front_env: FrontendEnv,
         sql: S,
-        snapshot: HummockSnapshotGuard,
+        snapshot: QueryHummockSnapshotGuard,
         auth_context: Arc<AuthContext>,
     ) -> Self {
         Self {
@@ -226,7 +226,7 @@ impl LocalQueryExecution {
                     // `exchange_source`.
                     let (parallel_unit_ids, vnode_bitmaps): (Vec<_>, Vec<_>) =
                         vnode_bitmaps.clone().into_iter().unzip();
-                    let workers = self.front_env.worker_node_manager().get_workers_by_parallel_unit_ids(&parallel_unit_ids)?;
+                    let workers = self.front_env.worker_node_manager().get_workers_by_parallel_unit_ids(&parallel_unit_ids,self.snapshot.get_align_epoch())?;
 
                     for (idx, (worker_node, partition)) in
                         (workers.into_iter().zip_eq(vnode_bitmaps.into_iter())).enumerate()
@@ -347,9 +347,10 @@ impl LocalQueryExecution {
                             .read_guard()
                             .get_table_by_id(&side_table_desc.table_id.into())
                             .map(|table| {
-                                self.front_env
-                                    .worker_node_manager()
-                                    .get_fragment_mapping(&table.fragment_id)
+                                self.front_env.worker_node_manager().get_fragment_mapping(
+                                    &table.fragment_id,
+                                    self.snapshot.get_align_epoch(),
+                                )
                             })
                             .ok()
                             .flatten()

@@ -118,7 +118,7 @@ pub(super) fn handle_explain(
                     session.env().worker_node_manager_ref(),
                     session.env().catalog_reader().clone(),
                 );
-                let query = plan_fragmenter.split(plan)?;
+                let query = plan_fragmenter.split(plan, 0)?;
                 let stage_graph_json = serde_json::to_string_pretty(&query.stage_graph).unwrap();
                 rows.extend(
                     vec![stage_graph_json]

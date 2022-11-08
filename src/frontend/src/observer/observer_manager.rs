@@ -260,13 +260,16 @@ impl FrontendObserverNode {
                         &parallel_unit_mapping.original_indices,
                         &parallel_unit_mapping.data,
                     );
-                    self.worker_node_manager
-                        .insert_fragment_mapping(fragment_id, mapping);
+                    self.worker_node_manager.insert_fragment_mapping(
+                        fragment_id,
+                        mapping,
+                        resp.align_epoch,
+                    );
                 }
                 Operation::Delete => {
                     let fragment_id = parallel_unit_mapping.fragment_id;
                     self.worker_node_manager
-                        .remove_fragment_mapping(&fragment_id);
+                        .remove_fragment_mapping(&fragment_id, resp.align_epoch);
                 }
                 Operation::Update => {
                     let fragment_id = parallel_unit_mapping.fragment_id;
@@ -274,8 +277,11 @@ impl FrontendObserverNode {
                         &parallel_unit_mapping.original_indices,
                         &parallel_unit_mapping.data,
                     );
-                    self.worker_node_manager
-                        .update_fragment_mapping(fragment_id, mapping);
+                    self.worker_node_manager.update_fragment_mapping(
+                        fragment_id,
+                        mapping,
+                        resp.align_epoch,
+                    );
                 }
                 _ => panic!("receive an unsupported notify {:?}", resp),
             },

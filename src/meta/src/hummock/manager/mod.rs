@@ -230,6 +230,7 @@ where
             latest_snapshot: ArcSwap::from_pointee(HummockSnapshot {
                 committed_epoch: INVALID_EPOCH,
                 current_epoch: INVALID_EPOCH,
+                need_align: false,
             }),
         };
 
@@ -361,6 +362,7 @@ where
             HummockSnapshot {
                 committed_epoch: redo_state.max_committed_epoch,
                 current_epoch: redo_state.max_committed_epoch,
+                need_align: false,
             }
             .into(),
         );
@@ -1321,6 +1323,7 @@ where
         epoch: HummockEpoch,
         mut sstables: Vec<LocalSstableInfo>,
         sst_to_context: HashMap<HummockSstableId, HummockContextId>,
+        need_align: bool,
     ) -> Result<()> {
         let mut versioning_guard = write_lock!(self, versioning).await;
         let _timer = start_measure_real_process_timer!(self);
@@ -1528,6 +1531,7 @@ where
         let snapshot = HummockSnapshot {
             committed_epoch: epoch,
             current_epoch: epoch,
+            need_align,
         };
         let prev_snapshot = self.latest_snapshot.swap(snapshot.clone().into());
         assert!(prev_snapshot.committed_epoch < epoch);
@@ -1589,6 +1593,7 @@ where
         let prev_snapshot = self.latest_snapshot.rcu(|snapshot| HummockSnapshot {
             committed_epoch: snapshot.committed_epoch,
             current_epoch: max_current_epoch,
+            need_align: false,
         });
         assert!(prev_snapshot.current_epoch < max_current_epoch);
 
@@ -1600,6 +1605,7 @@ where
                 Info::HummockSnapshot(HummockSnapshot {
                     committed_epoch: prev_snapshot.committed_epoch,
                     current_epoch: max_current_epoch,
+                    need_align: false,
                 }),
             );
         Ok(())

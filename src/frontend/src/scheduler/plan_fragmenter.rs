@@ -110,7 +110,7 @@ impl ExecutionPlanNode {
 
 /// `BatchPlanFragmenter` splits a query plan into fragments.
 pub struct BatchPlanFragmenter {
-    query_id: QueryId,
+    pub query_id: QueryId,
     stage_graph_builder: StageGraphBuilder,
     next_stage_id: StageId,
     worker_node_manager: WorkerNodeManagerRef,
@@ -417,8 +417,16 @@ impl StageGraphBuilder {
 
 impl BatchPlanFragmenter {
     /// Split the plan node into each stages, based on exchange node.
-    pub fn split(mut self, batch_node: PlanRef) -> SchedulerResult<Query> {
-        let root_stage = self.new_stage(batch_node.clone(), Distribution::Single.to_prost(1))?;
+    pub fn split(
+        mut self,
+        batch_node: PlanRef,
+        snapshot_align_epoch: u64,
+    ) -> SchedulerResult<Query> {
+        let root_stage = self.new_stage(
+            batch_node.clone(),
+            Distribution::Single.to_prost(1),
+            snapshot_align_epoch,
+        )?;
         let stage_graph = self.stage_graph_builder.build(root_stage.id);
         Ok(Query {
             stage_graph,
@@ -430,11 +438,13 @@ impl BatchPlanFragmenter {
         &mut self,
         root: PlanRef,
         exchange_info: ExchangeInfo,
+        snapshot_align_epoch: u64,
     ) -> SchedulerResult<QueryStageRef> {
         let next_stage_id = self.next_stage_id;
         self.next_stage_id += 1;
 
-        let mut table_scan_info = self.collect_stage_table_scan(root.clone())?;
+        let mut table_scan_info =
+            self.collect_stage_table_scan(root.clone(), snapshot_align_epoch)?;
         let parallelism = match root.distribution() {
             Distribution::Single => {
                 if let Some(info) = &mut table_scan_info {
@@ -479,7 +489,7 @@ impl BatchPlanFragmenter {
             table_scan_info,
         );
 
-        self.visit_node(root, &mut builder, None)?;
+        self.visit_node(root, &mut builder, None, snapshot_align_epoch)?;
 
         Ok(builder.finish(&mut self.stage_graph_builder))
     }
@@ -489,16 +499,27 @@ impl BatchPlanFragmenter {
         node: PlanRef,
         builder: &mut QueryStageBuilder,
         parent_exec_node: Option<&mut ExecutionPlanNode>,
+        snapshot_align_epoch: u64,
     ) -> SchedulerResult<()> {
         match node.node_type() {
             PlanNodeType::BatchExchange => {
-                self.visit_exchange(node.clone(), builder, parent_exec_node)?;
+                self.visit_exchange(
+                    node.clone(),
+                    builder,
+                    parent_exec_node,
+                    snapshot_align_epoch,
+                )?;
             }
             _ => {
                 let mut execution_plan_node = ExecutionPlanNode::from(node.clone());
 
                 for child in node.inputs() {
-                    self.visit_node(child, builder, Some(&mut execution_plan_node))?;
+                    self.visit_node(
+                        child,
+                        builder,
+                        Some(&mut execution_plan_node),
+                        snapshot_align_epoch,
+                    )?;
                 }
 
                 if let Some(parent) = parent_exec_node {
@@ -516,10 +537,15 @@ impl BatchPlanFragmenter {
         node: PlanRef,
         builder: &mut QueryStageBuilder,
         parent_exec_node: Option<&mut ExecutionPlanNode>,
+        snapshot_align_epoch: u64,
     ) -> SchedulerResult<()> {
         let mut execution_plan_node = ExecutionPlanNode::from(node.clone());
         let child_exchange_info = node.distribution().to_prost(builder.parallelism);
-        let child_stage = self.new_stage(node.inputs()[0].clone(), child_exchange_info)?;
+        let child_stage = self.new_stage(
+            node.inputs()[0].clone(),
+            child_exchange_info,
+            snapshot_align_epoch,
+        )?;
         execution_plan_node.source_stage_id = Some(child_stage.id);
 
         if let Some(parent) = parent_exec_node {
@@ -536,7 +562,11 @@ impl BatchPlanFragmenter {
     ///
     /// If there are multiple scan nodes in this stage, they must have the same distribution, but
     /// maybe different vnodes partition. We just use the same partition for all the scan nodes.
-    fn collect_stage_table_scan(&self, node: PlanRef) -> SchedulerResult<Option<TableScanInfo>> {
+    fn collect_stage_table_scan(
+        &self,
+        node: PlanRef,
+        snapshot_align_epoch: u64,
+    ) -> SchedulerResult<Option<TableScanInfo>> {
         if node.node_type() == PlanNodeType::BatchExchange {
             // Do not visit next stage.
             return Ok(None);
@@ -555,7 +585,7 @@ impl BatchPlanFragmenter {
                     .map_err(RwError::from)?;
                 let vnode_mapping = self
                     .worker_node_manager
-                    .get_fragment_mapping(&table_catalog.fragment_id)
+                    .get_fragment_mapping(&table_catalog.fragment_id, snapshot_align_epoch)
                     .ok_or_else(|| {
                         anyhow!(
                             "failed to get the vnode mapping for the `Materialize` of {}",
@@ -570,7 +600,10 @@ impl BatchPlanFragmenter {
         } else {
             node.inputs()
                 .into_iter()
-                .find_map(|n| self.collect_stage_table_scan(n).transpose())
+                .find_map(|n| {
+                    self.collect_stage_table_scan(n, snapshot_align_epoch)
+                        .transpose()
+                })
                 .transpose()
         }
     }
