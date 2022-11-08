@@ -103,7 +103,6 @@ where
             loop {
                 match self.rx.message().await {
                     Ok(resp) => {
-                        let a: SubscribeResponse = resp.clone().unwrap();
                         if resp.is_none() {
                             tracing::error!("Stream of notification terminated.");
                             self.re_subscribe().await;
