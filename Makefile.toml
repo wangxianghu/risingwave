@@ -500,16 +500,12 @@ script = """
 
 set -e
 
-for tool in cargo-llvm-cov cargo-nextest cargo-udeps cargo-hakari cargo-sort cargo-make cargo-upgrades typos-cli
+for tool in cargo-llvm-cov cargo-nextest cargo-udeps cargo-hakari cargo-sort cargo-make cargo-upgrades typos-cli sqllogictest-bin
 do
   echo "install: $(tput setaf 4)$tool$(tput sgr0)"
   cargo install $tool --locked
   echo
 done
-
-echo "install: $(tput setaf 4)risinglightdb/sqllogictest-rs$(tput sgr0)"
-cargo install --git https://github.com/risinglightdb/sqllogictest-rs --bin sqllogictest
-echo
 
 echo "check: $(tput setaf 4)tmux >= v3.2a$(tput sgr0)"
 tmux -V || echo "$(tput setaf 3)tmux$(tput sgr0) not found."
