@@ -197,7 +197,7 @@ impl LogicalOverAgg {
                 Some(i) => Ok(PlanAggOrderByField {
                     input: *i.clone(),
                     direction: e.direction,
-                    nulls_first: e.nulls_first,
+                    nulls_order: e.nulls_order,
                 }),
                 None => Err(ErrorCode::NotImplemented(
                     "ORDER BY expression in window function".to_string(),

@@ -28,7 +28,7 @@ use super::super::utils::TableCatalogBuilder;
 use super::{stream, GenericPlanNode, GenericPlanRef};
 use crate::expr::{Expr, ExprRewriter, InputRef, InputRefDisplay};
 use crate::optimizer::optimizer_context::OptimizerContextRef;
-use crate::optimizer::property::Direction;
+use crate::optimizer::property::{Direction, NullsOrder};
 use crate::stream_fragmenter::BuildFragmentGraphState;
 use crate::utils::{
     ColIndexMapping, ColIndexMappingRewriteExt, Condition, ConditionDisplay, IndexRewriter,
@@ -468,21 +468,15 @@ impl<PlanRef: stream::StreamPlanRef> Agg<PlanRef> {
 pub struct PlanAggOrderByField {
     pub input: InputRef,
     pub direction: Direction,
-    pub nulls_first: bool,
+    pub nulls_order: NullsOrder,
 }
 
 impl fmt::Debug for PlanAggOrderByField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.input)?;
-        match self.direction {
-            Direction::Asc => write!(f, " ASC")?,
-            Direction::Desc => write!(f, " DESC")?,
-            _ => {}
-        }
         write!(
             f,
-            " NULLS {}",
-            if self.nulls_first { "FIRST" } else { "LAST" }
+            "{:?} {} NULLS {}",
+            self.input, self.direction, self.nulls_order
         )?;
         Ok(())
     }
@@ -502,16 +496,7 @@ impl fmt::Display for PlanAggOrderByFieldDisplay<'_> {
             input_schema: self.input_schema,
         }
         .fmt(f)?;
-        match that.direction {
-            Direction::Asc => write!(f, " ASC")?,
-            Direction::Desc => write!(f, " DESC")?,
-            _ => {}
-        }
-        write!(
-            f,
-            " NULLS {}",
-            if that.nulls_first { "FIRST" } else { "LAST" }
-        )?;
+        write!(f, " {} NULLS {}", that.direction, that.nulls_order)?;
         Ok(())
     }
 }
@@ -522,7 +507,7 @@ impl PlanAggOrderByField {
             input: Some(self.input.to_proto()),
             r#type: Some(self.input.data_type.to_protobuf()),
             direction: self.direction.to_protobuf() as i32,
-            nulls_first: self.nulls_first,
+            nulls_order: self.nulls_order.to_protobuf() as i32,
         }
     }
 }

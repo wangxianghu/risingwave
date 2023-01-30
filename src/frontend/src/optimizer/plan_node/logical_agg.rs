@@ -599,7 +599,7 @@ impl LogicalAggBuilder {
                 Ok(PlanAggOrderByField {
                     input: InputRef::new(index, e.expr.return_type()),
                     direction: e.direction,
-                    nulls_first: e.nulls_first,
+                    nulls_order: e.nulls_order,
                 })
             })
             .try_collect()

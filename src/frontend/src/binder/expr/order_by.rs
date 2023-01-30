@@ -16,7 +16,7 @@ use risingwave_common::error::Result;
 use risingwave_sqlparser::ast::OrderByExpr;
 
 use crate::expr::OrderByExpr as BoundOrderByExpr;
-use crate::optimizer::property::Direction;
+use crate::optimizer::property::{Direction, NullsOrder};
 use crate::Binder;
 
 impl Binder {
@@ -39,18 +39,21 @@ impl Binder {
             Some(false) => Direction::Desc,
         };
 
-        let nulls_first = nulls_first.unwrap_or_else(|| match direction {
-            Direction::Asc => false,
-            Direction::Desc => true,
-            Direction::Any => unreachable!(),
-        });
+        let nulls_order = match (direction, nulls_first) {
+            (_, None) => NullsOrder::Largest, // NULLS should be largest by default
+            (Direction::Asc, Some(true)) => NullsOrder::Smallest,
+            (Direction::Asc, Some(false)) => NullsOrder::Largest,
+            (Direction::Desc, Some(true)) => NullsOrder::Largest,
+            (Direction::Desc, Some(false)) => NullsOrder::Smallest,
+            (Direction::Any, _) => unreachable!(),
+        };
 
         let expr = self.bind_expr(expr)?;
 
         Ok(BoundOrderByExpr {
             expr,
             direction,
-            nulls_first,
+            nulls_order,
         })
     }
 }

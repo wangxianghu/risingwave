@@ -17,7 +17,7 @@ use std::fmt::Display;
 use itertools::Itertools;
 
 use crate::expr::{ExprImpl, ExprMutator, ExprRewriter, ExprVisitor};
-use crate::optimizer::property::Direction;
+use crate::optimizer::property::{Direction, NullsOrder};
 
 /// A sort expression in the `ORDER BY` clause.
 ///
@@ -26,18 +26,16 @@ use crate::optimizer::property::Direction;
 pub struct OrderByExpr {
     pub expr: ExprImpl,
     pub direction: Direction,
-    pub nulls_first: bool,
+    pub nulls_order: NullsOrder,
 }
 
 impl Display for OrderByExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.expr)?;
-        if self.direction == Direction::Desc {
-            write!(f, " DESC")?;
-        }
-        if self.nulls_first {
-            write!(f, " NULLS FIRST")?;
-        }
+        write!(
+            f,
+            "{:?} {} NULLS {}",
+            self.expr, self.direction, self.nulls_order
+        )?;
         Ok(())
     }
 }
@@ -73,7 +71,7 @@ impl OrderBy {
                 .map(|e| OrderByExpr {
                     expr: rewriter.rewrite_expr(e.expr),
                     direction: e.direction,
-                    nulls_first: e.nulls_first,
+                    nulls_order: e.nulls_order,
                 })
                 .collect(),
         }

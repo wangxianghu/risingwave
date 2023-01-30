@@ -63,6 +63,12 @@ enum OrderType {
   DESCENDING = 2;
 }
 
+enum NullsOrderType {
+  NULLS_ORDER_UNSPECIFIED = 0;
+  LARGEST = 1;
+  SMALLEST = 2;
+}
+
 // Column index with an order type (ASC or DESC). Used to represent a sort key (`repeated ColumnOrder`).
 message ColumnOrder {
   // maybe other name

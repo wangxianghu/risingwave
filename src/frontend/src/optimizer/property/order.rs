@@ -19,7 +19,9 @@ use parse_display::Display;
 use risingwave_common::catalog::{FieldDisplay, Schema};
 use risingwave_common::error::Result;
 use risingwave_common::util::sort_util::{OrderPair, OrderType};
-use risingwave_pb::plan_common::{ColumnOrder, OrderType as ProstOrderType};
+use risingwave_pb::plan_common::{
+    ColumnOrder, NullsOrderType as ProstNullsOrderType, OrderType as ProstOrderType,
+};
 
 use super::super::plan_node::*;
 use crate::optimizer::PlanRef;
@@ -224,6 +226,30 @@ impl Direction {
         match other {
             Direction::Any => true,
             _ => self == other,
+        }
+    }
+}
+
+#[derive(Debug, Display, Copy, Clone, Eq, PartialEq, Hash)]
+#[display(style = "UPPERCASE")]
+pub enum NullsOrder {
+    Largest,
+    Smallest,
+}
+
+impl NullsOrder {
+    pub fn to_protobuf(self) -> ProstNullsOrderType {
+        match self {
+            Self::Largest => ProstNullsOrderType::Largest,
+            Self::Smallest => ProstNullsOrderType::Smallest,
+        }
+    }
+
+    pub fn from_protobuf(nulls_order: &ProstNullsOrderType) -> Self {
+        match nulls_order {
+            ProstNullsOrderType::Largest => Self::Largest,
+            ProstNullsOrderType::Smallest => Self::Smallest,
+            ProstNullsOrderType::NullsOrderUnspecified => unreachable!(),
         }
     }
 }
