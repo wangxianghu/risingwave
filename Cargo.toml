@@ -125,3 +125,5 @@ tokio-retry = { git = "https://github.com/madsim-rs/rust-tokio-retry.git", rev =
 tokio-postgres = { git = "https://github.com/madsim-rs/rust-postgres.git", rev = "87ca1dc" }
 postgres-types = { git = "https://github.com/madsim-rs/rust-postgres.git", rev = "87ca1dc" }
 madsim-rdkafka = { git = "https://github.com/madsim-rs/madsim.git", rev = "43e025d" }
+madsim = { git = "https://github.com/madsim-rs/madsim.git", rev = "dca0e30" }
+madsim-etcd-client = { git = "https://github.com/madsim-rs/madsim.git", rev = "dca0e30" }
