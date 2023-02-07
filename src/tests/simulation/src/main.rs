@@ -132,6 +132,10 @@ pub struct Args {
     /// Dump etcd data into toml file before exit.
     #[clap(long)]
     etcd_dump: Option<PathBuf>,
+
+    /// Enable buggify for fault injection.
+    #[clap(long)]
+    buggify: bool,
 }
 
 #[cfg(madsim)]
@@ -225,6 +229,9 @@ async fn main() {
     let cluster0 = cluster.clone();
     cluster
         .run_on_client(async move {
+            if args.buggify {
+                madsim::buggify::enable();
+            }
             let glob = &args.files;
             if let Some(jobs) = args.jobs {
                 run_parallel_slt_task(glob, jobs).await.unwrap();
