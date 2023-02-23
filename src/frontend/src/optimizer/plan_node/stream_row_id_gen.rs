@@ -13,8 +13,11 @@
 // limitations under the License.
 
 use std::fmt;
+use risingwave_common::catalog::TableId;
 
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
+use crate::optimizer::property::Distribution;
+use crate::optimizer::property::Distribution::HashShard;
 
 use super::{ExprRewritable, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
 use crate::stream_fragmenter::BuildFragmentGraphState;
@@ -28,12 +31,15 @@ pub struct StreamRowIdGen {
 
 impl StreamRowIdGen {
     pub fn new(input: PlanRef, row_id_index: usize) -> Self {
+        let mut distribution = input.distribution().clone();
+        println!("prev {:?}", input.distribution());
+        distribution = Distribution::HashShard(vec![row_id_index]);
         let base = PlanBase::new_stream(
             input.ctx(),
             input.schema().clone(),
             input.logical_pk().to_vec(),
             input.functional_dependency().clone(),
-            input.distribution().clone(),
+            distribution,
             input.append_only(),
             input.watermark_columns().clone(),
         );

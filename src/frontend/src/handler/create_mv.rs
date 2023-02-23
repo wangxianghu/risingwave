@@ -23,7 +23,7 @@ use super::privilege::resolve_relation_privileges;
 use super::RwPgResponse;
 use crate::binder::{Binder, BoundQuery, BoundSetExpr};
 use crate::handler::HandlerArgs;
-use crate::optimizer::plan_node::Explain;
+use crate::optimizer::plan_node::{Explain, PlanTreeNode};
 use crate::optimizer::{OptimizerContext, OptimizerContextRef, PlanRef};
 use crate::planner::Planner;
 use crate::scheduler::streaming_manager::CreatingStreamingJobInfo;
@@ -96,7 +96,13 @@ pub fn gen_create_mv_plan(
     if let Some(col_names) = col_names {
         plan_root.set_out_names(col_names)?;
     }
+
+    println!("table {}", table_name);
+    println!("def {:?}", definition);
+
     let materialize = plan_root.gen_materialize_plan(table_name, definition)?;
+
+    //println!("inputs 2 {:#?}", materialize.inputs());
     let mut table = materialize.table().to_prost(schema_id, database_id);
     if session.config().get_create_compaction_group_for_mv() {
         table.properties.insert(
@@ -133,6 +139,7 @@ pub async fn handle_create_mv(
     let (table, graph) = {
         let context = OptimizerContext::from_handler_args(handler_args);
         let (plan, table) = gen_create_mv_plan(&session, context.into(), query, name, columns)?;
+
         let context = plan.plan_base().ctx.clone();
         let mut graph = build_graph(plan);
         graph.parallelism = session

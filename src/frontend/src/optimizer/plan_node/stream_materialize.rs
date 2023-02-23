@@ -62,6 +62,10 @@ impl StreamMaterialize {
         definition: String,
         table_type: TableType,
     ) -> Result<Self> {
+
+        println!("mat");
+
+
         let input = Self::rewrite_input(input, user_distributed_by, table_type)?;
         let columns = derive_columns(input.schema(), out_names, &user_cols)?;
 
@@ -120,6 +124,8 @@ impl StreamMaterialize {
         user_distributed_by: RequiredDist,
         table_type: TableType,
     ) -> Result<PlanRef> {
+        println!("input {}", input.distribution());
+
         let required_dist = match input.distribution() {
             Distribution::Single => RequiredDist::single(),
             _ => match table_type {
@@ -138,6 +144,8 @@ impl StreamMaterialize {
                 TableType::Internal => unreachable!(),
             },
         };
+
+        println!("required {:?}", required_dist);
 
         required_dist.enforce_if_not_satisfies(input, &Order::any())
     }

@@ -45,6 +45,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
+use std::ptr::hash;
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
@@ -166,6 +167,8 @@ impl Distribution {
 
     /// check if the distribution satisfies other required distribution
     pub fn satisfies(&self, required: &RequiredDist) -> bool {
+        println!("self, {:?}, target {:?}", self, required);
+
         match required {
             RequiredDist::Any => true,
             RequiredDist::AnyShard => {
@@ -180,6 +183,15 @@ impl Distribution {
             RequiredDist::ShardByKey(required_key) => match self {
                 Distribution::HashShard(hash_key)
                 | Distribution::UpstreamHashShard(hash_key, _) => {
+                    println!("hash key {:?}", hash_key);
+                    println!("required key {:?}", required_key);
+
+                    println!("ones {:?}", required_key.ones().collect_vec());
+
+                    for x in hash_key {
+                        println!("required contains {} {}", x, required_key.contains(*x));
+                    }
+
                     hash_key.iter().all(|idx| required_key.contains(*idx))
                 }
                 _ => false,
@@ -307,7 +319,11 @@ impl RequiredDist {
         required_order: &Order,
     ) -> Result<PlanRef> {
         if !plan.distribution().satisfies(self) {
-            Ok(self.enforce(plan, required_order))
+            println!("required as self {:?}", self);
+            println!("plan {}", plan.distribution());
+            let result = Ok(self.enforce(plan, required_order));
+//            println!("result {:?}", result);
+            result
         } else {
             Ok(plan)
         }

@@ -95,8 +95,12 @@ impl BuildFragmentGraphState {
 }
 
 pub fn build_graph(plan_node: PlanRef) -> StreamFragmentGraphProto {
+//    println!("plan is {:#?}", plan_node);
     let mut state = BuildFragmentGraphState::default();
     let stream_node = plan_node.to_stream_prost(&mut state);
+
+    //println!("stream node {:#?}", stream_node);
+
     generate_fragment_graph(&mut state, stream_node).unwrap();
     let mut fragment_graph = state.fragment_graph.to_protobuf();
     fragment_graph.dependent_relation_ids = state
@@ -105,6 +109,8 @@ pub fn build_graph(plan_node: PlanRef) -> StreamFragmentGraphProto {
         .map(|id| id.table_id)
         .collect();
     fragment_graph.table_ids_cnt = state.next_table_id;
+
+    //println!("frag graph is {:#?}", fragment_graph);
     fragment_graph
 }
 

@@ -292,11 +292,14 @@ impl Scheduler {
                 dt: edge.dispatch_strategy.r#type(),
             });
         }
+        println!("build {:?}", graph.building_fragments().keys().collect_vec());
 
         // Run the algorithm.
         let mut crepe = Crepe::new();
+        let x = facts.len();
         crepe.extend(facts.into_iter().map(Input));
         let (success, failed) = crepe.run();
+        println!("succ {}, fail {}, fact {}", success.len(), failed.len(), x);
         if !failed.is_empty() {
             bail!("Failed to schedule: {:?}", failed);
         }
