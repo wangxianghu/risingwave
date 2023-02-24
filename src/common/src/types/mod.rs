@@ -13,32 +13,53 @@
 // limitations under the License.
 
 use std::convert::TryFrom;
+use std::fmt::Debug;
 use std::hash::Hash;
+use std::io::Cursor;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
+use itertools::Itertools;
 use num_traits::Float;
 use parse_display::{Display, FromStr};
-use risingwave_pb::data::DataType as ProstDataType;
+use paste::paste;
+use postgres_types::{IsNull, ToSql, Type};
 use serde::{Deserialize, Serialize};
+use strum_macros::EnumDiscriminants;
+
+pub use chrono_wrapper::{
+    NaiveDateTimeWrapper, NaiveDateWrapper, NaiveTimeWrapper, UNIX_EPOCH_DAYS,
+};
+pub use decimal::Decimal;
+pub use interval::*;
+pub use native_type::*;
+pub use ops::{CheckedAdd, IsNegative};
+pub use ordered_float::IntoOrdered;
+use risingwave_pb::data::data_type::{IntervalType, TypeName};
+use risingwave_pb::data::data_type::IntervalType::*;
+use risingwave_pb::data::DataType as ProstDataType;
+pub use scalar_impl::*;
+pub use successor::*;
 
 use crate::array::{ArrayError, ArrayResult, NULL_VAL_FOR_HASH};
+use crate::array::{
+    ArrayBuilderImpl, JsonbRef, JsonbVal, ListRef, ListValue, PrimitiveArrayItemType,
+    read_interval_unit, StructRef, StructValue,
+};
 use crate::error::BoxedError;
+use crate::error::Result as RwResult;
+
+use self::struct_type::StructType;
+use self::to_binary::ToBinary;
+use self::to_text::ToText;
 
 mod native_type;
 mod ops;
 mod scalar_impl;
 mod successor;
 
-use std::fmt::Debug;
-use std::io::Cursor;
-use std::str::FromStr;
-
-pub use native_type::*;
-use risingwave_pb::data::data_type::IntervalType::*;
-use risingwave_pb::data::data_type::{IntervalType, TypeName};
-pub use scalar_impl::*;
-pub use successor::*;
 pub mod chrono_wrapper;
 pub mod decimal;
 pub mod interval;
@@ -48,28 +69,6 @@ pub mod to_binary;
 pub mod to_text;
 
 mod ordered_float;
-
-use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
-pub use chrono_wrapper::{
-    NaiveDateTimeWrapper, NaiveDateWrapper, NaiveTimeWrapper, UNIX_EPOCH_DAYS,
-};
-pub use decimal::Decimal;
-pub use interval::*;
-use itertools::Itertools;
-pub use ops::{CheckedAdd, IsNegative};
-pub use ordered_float::IntoOrdered;
-use paste::paste;
-use postgres_types::{IsNull, ToSql, Type};
-use strum_macros::EnumDiscriminants;
-
-use self::struct_type::StructType;
-use self::to_binary::ToBinary;
-use self::to_text::ToText;
-use crate::array::{
-    read_interval_unit, ArrayBuilderImpl, JsonbRef, JsonbVal, ListRef, ListValue,
-    PrimitiveArrayItemType, StructRef, StructValue,
-};
-use crate::error::Result as RwResult;
 
 pub type OrderedF32 = ordered_float::OrderedFloat<f32>;
 pub type OrderedF64 = ordered_float::OrderedFloat<f64>;
@@ -131,6 +130,9 @@ pub enum DataType {
     #[display("jsonb")]
     #[from_str(regex = "(?i)^jsonb$")]
     Jsonb,
+    #[display("serial")]
+    #[from_str(regex = "(?i)^serial$")]
+    Serial,
 }
 
 impl std::str::FromStr for Box<DataType> {
@@ -148,6 +150,7 @@ impl DataTypeName {
             | DataTypeName::Int16
             | DataTypeName::Int32
             | DataTypeName::Int64
+            | DataTypeName::Serial
             | DataTypeName::Decimal
             | DataTypeName::Float32
             | DataTypeName::Float64
@@ -184,6 +187,7 @@ impl DataTypeName {
             DataTypeName::Struct | DataTypeName::List => {
                 return None;
             }
+            DataTypeName::Serial => DataType::Serial,
         };
         Some(t)
     }
@@ -256,6 +260,7 @@ impl DataType {
             DataType::Int16 => PrimitiveArrayBuilder::<i16>::new(capacity).into(),
             DataType::Int32 => PrimitiveArrayBuilder::<i32>::new(capacity).into(),
             DataType::Int64 => PrimitiveArrayBuilder::<i64>::new(capacity).into(),
+            DataType::Serial => PrimitiveArrayBuilder::<i64>::new(capacity).into(),
             DataType::Float32 => PrimitiveArrayBuilder::<OrderedF32>::new(capacity).into(),
             DataType::Float64 => PrimitiveArrayBuilder::<OrderedF64>::new(capacity).into(),
             DataType::Decimal => DecimalArrayBuilder::new(capacity).into(),
@@ -285,6 +290,7 @@ impl DataType {
             DataType::Int16 => TypeName::Int16,
             DataType::Int32 => TypeName::Int32,
             DataType::Int64 => TypeName::Int64,
+            DataType::Serial => TypeName::Int64,
             DataType::Float32 => TypeName::Float,
             DataType::Float64 => TypeName::Double,
             DataType::Boolean => TypeName::Boolean,
@@ -367,6 +373,7 @@ impl DataType {
             DataType::Int16 => ScalarImpl::Int16(i16::MIN),
             DataType::Int32 => ScalarImpl::Int32(i32::MIN),
             DataType::Int64 => ScalarImpl::Int64(i64::MIN),
+            DataType::Serial => ScalarImpl::Int64(i64::MIN),
             DataType::Float32 => ScalarImpl::Float32(OrderedF32::neg_infinity()),
             DataType::Float64 => ScalarImpl::Float64(OrderedF64::neg_infinity()),
             DataType::Boolean => ScalarImpl::Bool(false),
@@ -891,6 +898,7 @@ impl ScalarImpl {
             Ty::Int16 => Self::Int16(i16::deserialize(de)?),
             Ty::Int32 => Self::Int32(i32::deserialize(de)?),
             Ty::Int64 => Self::Int64(i64::deserialize(de)?),
+            Ty::Serial => Self::Int64(i64::deserialize(de)?),
             Ty::Float32 => Self::Float32(f32::deserialize(de)?.into()),
             Ty::Float64 => Self::Float64(f64::deserialize(de)?.into()),
             Ty::Varchar => Self::Utf8(Box::<str>::deserialize(de)?),
@@ -941,6 +949,7 @@ impl ScalarImpl {
                     DataType::Int16 => size_of::<i16>(),
                     DataType::Int32 => size_of::<i32>(),
                     DataType::Int64 => size_of::<i64>(),
+                    DataType::Serial => size_of::<i64>(),
                     DataType::Float32 => size_of::<OrderedF32>(),
                     DataType::Float64 => size_of::<OrderedF64>(),
                     DataType::Date => size_of::<NaiveDateWrapper>(),
@@ -1017,8 +1026,9 @@ mod tests {
     use rand::thread_rng;
     use strum::IntoEnumIterator;
 
-    use super::*;
     use crate::util::hash_util::Crc32FastBuilder;
+
+    use super::*;
 
     fn serialize_datum_not_null_into_vec(data: i64) -> Vec<u8> {
         let mut serializer = memcomparable::Serializer::new(vec![]);
