@@ -1,3 +1,4 @@
+
 // Copyright 2023 RisingWave Labs
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,6 +34,7 @@ pub(super) fn data_type_to_ast_data_type(data_type: &DataType) -> AstDataType {
         DataType::Int16 => AstDataType::SmallInt,
         DataType::Int32 => AstDataType::Int,
         DataType::Int64 => AstDataType::BigInt,
+        DataType::Serial => AstDataType::BigInt,
         DataType::Decimal => AstDataType::Decimal(None, None),
         DataType::Float32 => AstDataType::Real,
         DataType::Float64 => AstDataType::Double,

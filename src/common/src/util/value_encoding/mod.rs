@@ -165,6 +165,7 @@ fn deserialize_value(ty: &DataType, data: &mut impl Buf) -> Result<ScalarImpl> {
         DataType::List {
             datatype: item_type,
         } => deserialize_list(item_type, data)?,
+        DataType::Serial => ScalarImpl::Int64(data.get_i64_le()),
     })
 }
 

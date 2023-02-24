@@ -26,7 +26,8 @@ impl DataType {
             | DataType::Float64
             | DataType::Timestamp
             | DataType::Timestamptz
-            | DataType::Time => 8,
+            | DataType::Time
+            | DataType::Serial => 8,
             DataType::Decimal
             | DataType::Varchar
             | DataType::Bytea
@@ -114,6 +115,7 @@ impl DataType {
             DataType::Int16 => 21,
             DataType::Int32 => 23,
             DataType::Int64 => 20,
+            DataType::Serial => 20,
             DataType::Float32 => 700,
             DataType::Float64 => 701,
             DataType::Decimal => 1700,
@@ -133,6 +135,7 @@ impl DataType {
                 DataType::Int16 => 1005,
                 DataType::Int32 => 1007,
                 DataType::Int64 => 1016,
+                DataType::Serial => 1016,
                 DataType::Float32 => 1021,
                 DataType::Float64 => 1022,
                 DataType::Decimal => 1231,

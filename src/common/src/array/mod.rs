@@ -57,7 +57,7 @@ pub use jsonb_array::{JsonbArray, JsonbArrayBuilder, JsonbRef, JsonbVal};
 pub use list_array::{ListArray, ListArrayBuilder, ListRef, ListValue};
 use paste::paste;
 pub use primitive_array::{PrimitiveArray, PrimitiveArrayBuilder, PrimitiveArrayItemType};
-use risingwave_pb::data::{Array as ProstArray, ArrayType as ProstArrayType};
+use risingwave_pb::data::{Array as ProstArray, ArrayType as ProstArrayType, ArrayType};
 pub use stream_chunk::{Op, StreamChunk, StreamChunkTestExt};
 pub use struct_array::{StructArray, StructArrayBuilder, StructRef, StructValue};
 pub use utf8_array::*;
@@ -692,6 +692,7 @@ impl ArrayImpl {
             ProstArrayType::Bytea => {
                 read_string_array::<BytesArrayBuilder, BytesValueReader>(array, cardinality)?
             }
+            ArrayType::Serial => read_numeric_array::<i64, I64ValueReader>(array, cardinality)?,
         };
         Ok(array)
     }

@@ -104,6 +104,7 @@ fn hash_key_size(data_type: &DataType) -> HashKeySize {
         DataType::Jsonb => HashKeySize::Variable,
         DataType::Struct { .. } => HashKeySize::Variable,
         DataType::List { .. } => HashKeySize::Variable,
+        DataType::Serial => HashKeySize::Fixed(size_of::<i64>()),
     }
 }
 

@@ -702,6 +702,7 @@ impl<'a> TableScanIoEstimator<'a> {
             DataType::Int16 => size_of::<i16>(),
             DataType::Int32 => size_of::<i32>(),
             DataType::Int64 => size_of::<i64>(),
+            DataType::Serial => size_of::<i64>(),
             DataType::Float32 => size_of::<f32>(),
             DataType::Float64 => size_of::<f64>(),
             DataType::Decimal => size_of::<Decimal>(),

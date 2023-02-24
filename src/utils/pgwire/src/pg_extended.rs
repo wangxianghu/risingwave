@@ -512,6 +512,7 @@ impl PreparedStatement {
                         type_oid
                     )))
                 }
+                DataType::Serial => todo!("serial placeholder"),
             };
             params.push(str)
         }
@@ -548,6 +549,7 @@ impl PreparedStatement {
                         oid
                     )))
                 }
+                DataType::Serial => params.push("0::BIGINT".to_string()),
             };
         }
         Ok(params)
