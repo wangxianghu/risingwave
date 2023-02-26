@@ -20,7 +20,7 @@ use crate::buffer::{Bitmap};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct Serial {
-    pub(crate) inner: i64,
+    pub inner: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

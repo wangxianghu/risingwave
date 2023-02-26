@@ -43,9 +43,11 @@ impl StreamRowIdGen {
             input.distribution().clone()
         };
 
+        let schema = input.schema().clone();
+        println!("{:?}", schema);
         let base = PlanBase::new_stream(
             input.ctx(),
-            input.schema().clone(),
+            schema,
             input.logical_pk().to_vec(),
             input.functional_dependency().clone(),
             distribution,
