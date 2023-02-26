@@ -18,6 +18,7 @@ use std::num::FpCategory;
 use chrono::{TimeZone, Utc};
 
 use super::{DataType, DatumRef, ScalarRefImpl};
+use crate::array::Serial;
 use crate::for_all_scalar_variants;
 
 // Used to convert ScalarRef to text format
@@ -186,6 +187,16 @@ impl ToText for i64 {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+impl ToText for Serial {
+    fn write<W: Write>(&self, _f: &mut W) -> Result {
+        todo!()
+    }
+
+    fn write_with_type<W: Write>(&self, _ty: &DataType, _f: &mut W) -> Result {
+        todo!()
     }
 }
 

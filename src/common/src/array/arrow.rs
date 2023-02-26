@@ -452,6 +452,7 @@ impl From<&ListArray> for arrow_array::ListArray {
                 BinaryBuilder::with_capacity(a.len(), a.data().len()),
                 |b, v| b.append_option(v),
             ),
+            ArrayImpl::Serial(_) => todo!("serial"),
         }
     }
 }

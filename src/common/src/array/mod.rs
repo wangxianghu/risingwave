@@ -30,6 +30,7 @@ mod jsonb_array;
 pub mod list_array;
 mod macros;
 mod primitive_array;
+mod serial_array;
 pub mod stream_chunk;
 mod stream_chunk_iter;
 pub mod struct_array;
@@ -57,7 +58,8 @@ pub use jsonb_array::{JsonbArray, JsonbArrayBuilder, JsonbRef, JsonbVal};
 pub use list_array::{ListArray, ListArrayBuilder, ListRef, ListValue};
 use paste::paste;
 pub use primitive_array::{PrimitiveArray, PrimitiveArrayBuilder, PrimitiveArrayItemType};
-use risingwave_pb::data::{Array as ProstArray, ArrayType as ProstArrayType};
+use risingwave_pb::data::{Array as ProstArray, ArrayType as ProstArrayType, ArrayType};
+pub use serial_array::{Serial, SerialArray, SerialArrayBuilder};
 pub use stream_chunk::{Op, StreamChunk, StreamChunkTestExt};
 pub use struct_array::{StructArray, StructArrayBuilder, StructRef, StructValue};
 pub use utf8_array::*;
@@ -348,7 +350,8 @@ macro_rules! for_all_variants {
             { Jsonb, jsonb, JsonbArray, JsonbArrayBuilder },
             { Struct, struct, StructArray, StructArrayBuilder },
             { List, list, ListArray, ListArrayBuilder },
-            { Bytea, bytea, BytesArray, BytesArrayBuilder}
+            { Bytea, bytea, BytesArray, BytesArrayBuilder},
+            { Serial, serial, SerialArray, SerialArrayBuilder}
         }
     };
 }
@@ -405,6 +408,12 @@ impl From<ListArray> for ArrayImpl {
 impl From<BytesArray> for ArrayImpl {
     fn from(arr: BytesArray) -> Self {
         Self::Bytea(arr)
+    }
+}
+
+impl From<SerialArray> for ArrayImpl {
+    fn from(arr: SerialArray) -> Self {
+        Self::Serial(arr)
     }
 }
 
@@ -692,6 +701,7 @@ impl ArrayImpl {
             ProstArrayType::Bytea => {
                 read_string_array::<BytesArrayBuilder, BytesValueReader>(array, cardinality)?
             }
+            ArrayType::Serial => todo!("serial"),
         };
         Ok(array)
     }

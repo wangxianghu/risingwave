@@ -203,6 +203,26 @@ impl<'a> ScalarRef<'a> for IntervalUnit {
     }
 }
 
+impl Scalar for Serial {
+    type ScalarRefType<'a> = Serial;
+
+    fn as_scalar_ref(&self) -> Self::ScalarRefType<'_> {
+        todo!()
+    }
+}
+
+impl<'a> ScalarRef<'a> for Serial {
+    type ScalarType = Serial;
+
+    fn to_owned_scalar(&self) -> Self::ScalarType {
+        todo!()
+    }
+
+    fn hash_scalar<H: Hasher>(&self, _state: &mut H) {
+        todo!()
+    }
+}
+
 /// Implement `Scalar` for `NaiveDateWrapper`.
 impl Scalar for NaiveDateWrapper {
     type ScalarRefType<'a> = NaiveDateWrapper;

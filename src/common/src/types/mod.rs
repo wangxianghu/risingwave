@@ -67,7 +67,7 @@ use self::to_binary::ToBinary;
 use self::to_text::ToText;
 use crate::array::{
     read_interval_unit, ArrayBuilderImpl, JsonbRef, JsonbVal, ListRef, ListValue,
-    PrimitiveArrayItemType, StructRef, StructValue,
+    PrimitiveArrayItemType, Serial, StructRef, StructValue,
 };
 use crate::error::Result as RwResult;
 
@@ -208,6 +208,7 @@ impl From<&ProstDataType> for DataType {
             TypeName::Int16 => DataType::Int16,
             TypeName::Int32 => DataType::Int32,
             TypeName::Int64 => DataType::Int64,
+            TypeName::Serial => todo!("serial type"),
             TypeName::Float => DataType::Float32,
             TypeName::Double => DataType::Float64,
             TypeName::Boolean => DataType::Boolean,
@@ -483,7 +484,8 @@ macro_rules! for_all_scalar_variants {
             { Jsonb, jsonb, JsonbVal, JsonbRef<'scalar> },
             { Struct, struct, StructValue, StructRef<'scalar> },
             { List, list, ListValue, ListRef<'scalar> },
-            { Bytea, bytea, Box<[u8]>, &'scalar [u8] }
+            { Bytea, bytea, Box<[u8]>, &'scalar [u8] },
+            { Serial, serial, Serial, Serial }
         }
     };
 }
@@ -850,6 +852,7 @@ impl ScalarRefImpl<'_> {
             Self::Int16(v) => v.serialize(ser)?,
             Self::Int32(v) => v.serialize(ser)?,
             Self::Int64(v) => v.serialize(ser)?,
+            Self::Serial(v) => v.inner.serialize(ser)?,
             Self::Float32(v) => v.serialize(ser)?,
             Self::Float64(v) => v.serialize(ser)?,
             Self::Utf8(v) => v.serialize(ser)?,

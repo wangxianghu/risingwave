@@ -25,6 +25,7 @@ use std::convert::TryInto;
 use std::default::Default;
 use std::fmt::Debug;
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::i64;
 use std::io::{Cursor, Read};
 
 use chrono::{Datelike, Timelike};
@@ -32,7 +33,7 @@ use fixedbitset::FixedBitSet;
 
 use crate::array::{
     Array, ArrayBuilder, ArrayBuilderImpl, ArrayError, ArrayImpl, ArrayResult, DataChunk, JsonbRef,
-    ListRef, StructRef,
+    ListRef, Serial, StructRef,
 };
 use crate::collection::estimate_size::EstimateSize;
 use crate::hash::VirtualNode;
@@ -405,6 +406,18 @@ impl<'a> HashKeySerDe<'a> for &'a [u8] {
     /// This should never be called
     fn deserialize<R: Read>(_source: &mut R) -> Self {
         panic!("Should not serialize bytes for hash!")
+    }
+}
+
+impl HashKeySerDe<'_> for Serial {
+    type S = [u8; 8];
+
+    fn serialize(self) -> Self::S {
+        todo!();
+    }
+
+    fn deserialize<R: Read>(_source: &mut R) -> Self {
+        todo!()
     }
 }
 
