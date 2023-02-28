@@ -77,36 +77,24 @@ impl RowIdGenExecutor {
     /// Generate a row ID column according to ops.
     async fn gen_row_id_column_by_op(&mut self, column: &Column, ops: Ops<'_>) -> Column {
         let len = column.array_ref().len();
-        let mut builder = I64ArrayBuilder::new(len);
+        let mut builder = SerialArrayBuilder::new(len);
 
         for (datum, op) in column.array_ref().iter().zip_eq_fast(ops) {
             // Only refill row_id for insert operation.
-            match op {
-                Op::Insert => builder.append(Some(self.row_id_generator.next().await)),
-                _ => builder.append(Some(i64::try_from(datum.unwrap()).unwrap())),
-            }
+
+            let value = match op {
+                Op::Insert => Some(risingwave_common::array::Serial {
+                    inner: self.row_id_generator.next().await,
+                }),
+                _ => Some(risingwave_common::array::Serial {
+                    inner: i64::try_from(datum.unwrap()).unwrap(),
+                }),
+            };
+
+            builder.append(value)
         }
 
         builder.finish().into()
-        // let len = column.array_ref().len();
-        // let mut builder = SerialArrayBuilder::new(len);
-        //
-        // for (datum, op) in column.array_ref().iter().zip_eq_fast(ops) {
-        //     // Only refill row_id for insert operation.
-        //
-        //     let value = match op {
-        //         Op::Insert => Some(risingwave_common::array::Serial {
-        //             inner: self.row_id_generator.next().await,
-        //         }),
-        //         _ => Some(risingwave_common::array::Serial {
-        //             inner: i64::try_from(datum.unwrap()).unwrap(),
-        //         }),
-        //     };
-        //
-        //     builder.append(value)
-        // }
-        //
-        // builder.finish().into()
     }
 
     #[try_stream(ok = Message, error = StreamExecutorError)]

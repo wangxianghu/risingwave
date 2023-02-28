@@ -207,7 +207,7 @@ impl Scalar for Serial {
     type ScalarRefType<'a> = Serial;
 
     fn as_scalar_ref(&self) -> Self::ScalarRefType<'_> {
-        todo!()
+        *self
     }
 }
 
@@ -215,11 +215,12 @@ impl<'a> ScalarRef<'a> for Serial {
     type ScalarType = Serial;
 
     fn to_owned_scalar(&self) -> Self::ScalarType {
-        todo!()
+        *self
     }
 
     fn hash_scalar<H: Hasher>(&self, _state: &mut H) {
-        todo!()
+        println!("hash");
+        self.hash(_state)
     }
 }
 

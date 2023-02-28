@@ -213,7 +213,7 @@ impl From<&ProstDataType> for DataType {
             TypeName::Int16 => DataType::Int16,
             TypeName::Int32 => DataType::Int32,
             TypeName::Int64 => DataType::Int64,
-            TypeName::Serial => todo!("serial type"),
+            TypeName::Serial => DataType::Serial,
             TypeName::Float => DataType::Float32,
             TypeName::Double => DataType::Float64,
             TypeName::Boolean => DataType::Boolean,
@@ -262,7 +262,7 @@ impl DataType {
             DataType::Int16 => PrimitiveArrayBuilder::<i16>::new(capacity).into(),
             DataType::Int32 => PrimitiveArrayBuilder::<i32>::new(capacity).into(),
             DataType::Int64 => PrimitiveArrayBuilder::<i64>::new(capacity).into(),
-            DataType::Serial => PrimitiveArrayBuilder::<i64>::new(capacity).into(),
+            DataType::Serial => SerialArrayBuilder::new(capacity).into(),
             DataType::Float32 => PrimitiveArrayBuilder::<OrderedF32>::new(capacity).into(),
             DataType::Float64 => PrimitiveArrayBuilder::<OrderedF64>::new(capacity).into(),
             DataType::Decimal => DecimalArrayBuilder::new(capacity).into(),
@@ -292,7 +292,7 @@ impl DataType {
             DataType::Int16 => TypeName::Int16,
             DataType::Int32 => TypeName::Int32,
             DataType::Int64 => TypeName::Int64,
-            DataType::Serial => TypeName::Int64,
+            DataType::Serial => TypeName::Serial,
             DataType::Float32 => TypeName::Float,
             DataType::Float64 => TypeName::Double,
             DataType::Boolean => TypeName::Boolean,
@@ -335,6 +335,7 @@ impl DataType {
             DataType::Int16
                 | DataType::Int32
                 | DataType::Int64
+                | DataType::Serial
                 | DataType::Float32
                 | DataType::Float64
                 | DataType::Decimal
@@ -346,7 +347,10 @@ impl DataType {
     }
 
     pub fn is_int(&self) -> bool {
-        matches!(self, DataType::Int16 | DataType::Int32 | DataType::Int64)
+        matches!(
+            self,
+            DataType::Int16 | DataType::Int32 | DataType::Int64 | DataType::Serial
+        )
     }
 
     /// Returns the output type of window function on a given input type.
@@ -375,7 +379,7 @@ impl DataType {
             DataType::Int16 => ScalarImpl::Int16(i16::MIN),
             DataType::Int32 => ScalarImpl::Int32(i32::MIN),
             DataType::Int64 => ScalarImpl::Int64(i64::MIN),
-            DataType::Serial => ScalarImpl::Int64(i64::MIN),
+            DataType::Serial => ScalarImpl::Serial(Serial { inner: i64::MIN }),
             DataType::Float32 => ScalarImpl::Float32(OrderedF32::neg_infinity()),
             DataType::Float64 => ScalarImpl::Float64(OrderedF64::neg_infinity()),
             DataType::Boolean => ScalarImpl::Bool(false),
