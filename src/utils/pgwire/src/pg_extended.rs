@@ -406,7 +406,7 @@ impl PreparedStatement {
                         .to_string(),
                     Format::Text => cstr_to_str(raw_param).unwrap().to_string(),
                 },
-                DataType::Int64 => match param_format {
+                DataType::Int64 | DataType::Serial => match param_format {
                     Format::Binary => i64::from_sql(&place_hodler, raw_param).unwrap().to_string(),
                     Format::Text => cstr_to_str(raw_param).unwrap().to_string(),
                 },
@@ -527,6 +527,7 @@ impl PreparedStatement {
             match oid {
                 DataType::Boolean => params.push("false".to_string()),
                 DataType::Int64 => params.push("0::BIGINT".to_string()),
+                DataType::Serial => params.push("0::BIGINT".to_string()),
                 DataType::Int16 => params.push("0::SMALLINT".to_string()),
                 DataType::Int32 => params.push("0::INT".to_string()),
                 DataType::Float32 => params.push("0::FLOAT4".to_string()),

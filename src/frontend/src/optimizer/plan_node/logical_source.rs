@@ -355,8 +355,6 @@ impl ToBatch for LogicalSource {
 
 impl ToStream for LogicalSource {
     fn to_stream(&self, _ctx: &mut ToStreamContext) -> Result<PlanRef> {
-        panic!("self {:?}", self.schema());
-
         let mut plan: PlanRef = StreamSource::new(self.clone()).into();
         println!("to_stream first {:?}", plan.schema());
         if let Some(catalog) = self.source_catalog() && !catalog.watermark_descs.is_empty(){

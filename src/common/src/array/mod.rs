@@ -661,7 +661,360 @@ macro_rules! impl_array {
     }
 }
 
-for_all_variants! { impl_array }
+//for_all_variants! { impl_array }
+
+impl ArrayImpl {
+    ///   Number of items in array.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Int16(inner) => inner.len(),
+            Self::Int32(inner) => inner.len(),
+            Self::Int64(inner) => inner.len(),
+            Self::Float32(inner) => inner.len(),
+            Self::Float64(inner) => inner.len(),
+            Self::Utf8(inner) => inner.len(),
+            Self::Bool(inner) => inner.len(),
+            Self::Decimal(inner) => inner.len(),
+            Self::Interval(inner) => inner.len(),
+            Self::NaiveDate(inner) => inner.len(),
+            Self::NaiveDateTime(inner) => inner.len(),
+            Self::NaiveTime(inner) => inner.len(),
+            Self::Jsonb(inner) => inner.len(),
+            Self::Struct(inner) => inner.len(),
+            Self::List(inner) => inner.len(),
+            Self::Bytea(inner) => inner.len(),
+            Self::Serial(inner) => inner.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    ///   Get the null  `Bitmap`  of the array.
+    pub fn null_bitmap(&self) -> &Bitmap {
+        match self {
+            Self::Int16(inner) => inner.null_bitmap(),
+            Self::Int32(inner) => inner.null_bitmap(),
+            Self::Int64(inner) => inner.null_bitmap(),
+            Self::Float32(inner) => inner.null_bitmap(),
+            Self::Float64(inner) => inner.null_bitmap(),
+            Self::Utf8(inner) => inner.null_bitmap(),
+            Self::Bool(inner) => inner.null_bitmap(),
+            Self::Decimal(inner) => inner.null_bitmap(),
+            Self::Interval(inner) => inner.null_bitmap(),
+            Self::NaiveDate(inner) => inner.null_bitmap(),
+            Self::NaiveDateTime(inner) => inner.null_bitmap(),
+            Self::NaiveTime(inner) => inner.null_bitmap(),
+            Self::Jsonb(inner) => inner.null_bitmap(),
+            Self::Struct(inner) => inner.null_bitmap(),
+            Self::List(inner) => inner.null_bitmap(),
+            Self::Bytea(inner) => inner.null_bitmap(),
+            Self::Serial(inner) => inner.null_bitmap(),
+        }
+    }
+
+    pub fn into_null_bitmap(self) -> Bitmap {
+        match self {
+            Self::Int16(inner) => inner.into_null_bitmap(),
+            Self::Int32(inner) => inner.into_null_bitmap(),
+            Self::Int64(inner) => inner.into_null_bitmap(),
+            Self::Float32(inner) => inner.into_null_bitmap(),
+            Self::Float64(inner) => inner.into_null_bitmap(),
+            Self::Utf8(inner) => inner.into_null_bitmap(),
+            Self::Bool(inner) => inner.into_null_bitmap(),
+            Self::Decimal(inner) => inner.into_null_bitmap(),
+            Self::Interval(inner) => inner.into_null_bitmap(),
+            Self::NaiveDate(inner) => inner.into_null_bitmap(),
+            Self::NaiveDateTime(inner) => inner.into_null_bitmap(),
+            Self::NaiveTime(inner) => inner.into_null_bitmap(),
+            Self::Jsonb(inner) => inner.into_null_bitmap(),
+            Self::Struct(inner) => inner.into_null_bitmap(),
+            Self::List(inner) => inner.into_null_bitmap(),
+            Self::Bytea(inner) => inner.into_null_bitmap(),
+            Self::Serial(inner) => inner.into_null_bitmap(),
+        }
+    }
+
+    pub fn to_protobuf(&self) -> ProstArray {
+        match self {
+            Self::Int16(inner) => inner.to_protobuf(),
+            Self::Int32(inner) => inner.to_protobuf(),
+            Self::Int64(inner) => inner.to_protobuf(),
+            Self::Float32(inner) => inner.to_protobuf(),
+            Self::Float64(inner) => inner.to_protobuf(),
+            Self::Utf8(inner) => inner.to_protobuf(),
+            Self::Bool(inner) => inner.to_protobuf(),
+            Self::Decimal(inner) => inner.to_protobuf(),
+            Self::Interval(inner) => inner.to_protobuf(),
+            Self::NaiveDate(inner) => inner.to_protobuf(),
+            Self::NaiveDateTime(inner) => inner.to_protobuf(),
+            Self::NaiveTime(inner) => inner.to_protobuf(),
+            Self::Jsonb(inner) => inner.to_protobuf(),
+            Self::Struct(inner) => inner.to_protobuf(),
+            Self::List(inner) => inner.to_protobuf(),
+            Self::Bytea(inner) => inner.to_protobuf(),
+            Self::Serial(inner) => inner.to_protobuf(),
+        }
+    }
+
+    pub fn hash_at<H: Hasher>(&self, idx: usize, state: &mut H) {
+        match self {
+            Self::Int16(inner) => inner.hash_at(idx, state),
+            Self::Int32(inner) => inner.hash_at(idx, state),
+            Self::Int64(inner) => inner.hash_at(idx, state),
+            Self::Float32(inner) => inner.hash_at(idx, state),
+            Self::Float64(inner) => inner.hash_at(idx, state),
+            Self::Utf8(inner) => inner.hash_at(idx, state),
+            Self::Bool(inner) => inner.hash_at(idx, state),
+            Self::Decimal(inner) => inner.hash_at(idx, state),
+            Self::Interval(inner) => inner.hash_at(idx, state),
+            Self::NaiveDate(inner) => inner.hash_at(idx, state),
+            Self::NaiveDateTime(inner) => inner.hash_at(idx, state),
+            Self::NaiveTime(inner) => inner.hash_at(idx, state),
+            Self::Jsonb(inner) => inner.hash_at(idx, state),
+            Self::Struct(inner) => inner.hash_at(idx, state),
+            Self::List(inner) => inner.hash_at(idx, state),
+            Self::Bytea(inner) => inner.hash_at(idx, state),
+            Self::Serial(inner) => inner.hash_at(idx, state),
+        }
+    }
+
+    pub fn hash_vec<H: Hasher>(&self, hashers: &mut [H]) {
+        match self {
+            Self::Int16(inner) => inner.hash_vec(hashers),
+            Self::Int32(inner) => inner.hash_vec(hashers),
+            Self::Int64(inner) => inner.hash_vec(hashers),
+            Self::Float32(inner) => inner.hash_vec(hashers),
+            Self::Float64(inner) => inner.hash_vec(hashers),
+            Self::Utf8(inner) => inner.hash_vec(hashers),
+            Self::Bool(inner) => inner.hash_vec(hashers),
+            Self::Decimal(inner) => inner.hash_vec(hashers),
+            Self::Interval(inner) => inner.hash_vec(hashers),
+            Self::NaiveDate(inner) => inner.hash_vec(hashers),
+            Self::NaiveDateTime(inner) => inner.hash_vec(hashers),
+            Self::NaiveTime(inner) => inner.hash_vec(hashers),
+            Self::Jsonb(inner) => inner.hash_vec(hashers),
+            Self::Struct(inner) => inner.hash_vec(hashers),
+            Self::List(inner) => inner.hash_vec(hashers),
+            Self::Bytea(inner) => inner.hash_vec(hashers),
+            Self::Serial(inner) => inner.hash_vec(hashers),
+        }
+    }
+
+    ///   Select some elements from  `Array`  based on  `visibility`  bitmap.
+    pub fn compact(&self, visibility: &Bitmap, cardinality: usize) -> Self {
+        match self {
+            Self::Int16(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Int32(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Int64(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Float32(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Float64(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Utf8(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Bool(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Decimal(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Interval(inner) => inner.compact(visibility, cardinality).into(),
+            Self::NaiveDate(inner) => inner.compact(visibility, cardinality).into(),
+            Self::NaiveDateTime(inner) => inner.compact(visibility, cardinality).into(),
+            Self::NaiveTime(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Jsonb(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Struct(inner) => inner.compact(visibility, cardinality).into(),
+            Self::List(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Bytea(inner) => inner.compact(visibility, cardinality).into(),
+            Self::Serial(inner) => inner.compact(visibility, cardinality).into(),
+        }
+    }
+
+    pub fn get_ident(&self) -> &'static str {
+        match self {
+            Self::Int16(_) => stringify!( Int16 ),
+            Self::Int32(_) => stringify!( Int32 ),
+            Self::Int64(_) => stringify!( Int64 ),
+            Self::Float32(_) => stringify!( Float32 ),
+            Self::Float64(_) => stringify!( Float64 ),
+            Self::Utf8(_) => stringify!( Utf8 ),
+            Self::Bool(_) => stringify!( Bool ),
+            Self::Decimal(_) => stringify!( Decimal ),
+            Self::Interval(_) => stringify!( Interval ),
+            Self::NaiveDate(_) => stringify!( NaiveDate ),
+            Self::NaiveDateTime(_) => stringify!( NaiveDateTime ),
+            Self::NaiveTime(_) => stringify!( NaiveTime ),
+            Self::Jsonb(_) => stringify!( Jsonb ),
+            Self::Struct(_) => stringify!( Struct ),
+            Self::List(_) => stringify!( List ),
+            Self::Bytea(_) => stringify!( Bytea ),
+            Self::Serial(_) => stringify!( Serial ),
+        }
+    }
+
+    ///   Get the enum-wrapped  `Datum`  out of the  `Array` .
+    pub fn datum_at(&self, idx: usize) -> Datum {
+        match self {
+            Self::Int16(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Int32(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Int64(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Float32(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Float64(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Utf8(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Bool(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Decimal(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Interval(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::NaiveDate(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::NaiveDateTime(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::NaiveTime(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Jsonb(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Struct(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::List(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Bytea(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+            Self::Serial(inner) => inner
+                .value_at(idx)
+                .map(|item| item.to_owned_scalar().to_scalar_value()),
+        }
+    }
+
+    ///   If the array only have one single element, convert it to  `Datum` .
+    pub fn to_datum(&self) -> Datum {
+        match (&(self.len()), &1) {
+            (left_val, right_val) => {
+                if !(*left_val == *right_val) {
+                    let kind = ::core::panicking::AssertKind::Eq;
+
+
+                    ::core::panicking::assert_failed(kind, &*left_val, &*right_val, ::core::option::Option::None);
+                }
+            }
+        };
+        self.datum_at(0)
+    }
+
+    ///   Get the enum-wrapped  `ScalarRefImpl`  out of the  `Array` .
+    pub fn value_at(&self, idx: usize) -> DatumRef<'_> {
+        match self {
+            Self::Int16(inner) => inner.value_at(idx).map(ScalarRefImpl::Int16),
+            Self::Int32(inner) => inner.value_at(idx).map(ScalarRefImpl::Int32),
+            Self::Int64(inner) => inner.value_at(idx).map(ScalarRefImpl::Int64),
+            Self::Float32(inner) => inner.value_at(idx).map(ScalarRefImpl::Float32),
+            Self::Float64(inner) => inner.value_at(idx).map(ScalarRefImpl::Float64),
+            Self::Utf8(inner) => inner.value_at(idx).map(ScalarRefImpl::Utf8),
+            Self::Bool(inner) => inner.value_at(idx).map(ScalarRefImpl::Bool),
+            Self::Decimal(inner) => inner.value_at(idx).map(ScalarRefImpl::Decimal),
+            Self::Interval(inner) => inner.value_at(idx).map(ScalarRefImpl::Interval),
+            Self::NaiveDate(inner) => inner.value_at(idx).map(ScalarRefImpl::NaiveDate),
+            Self::NaiveDateTime(inner) => inner.value_at(idx).map(ScalarRefImpl::NaiveDateTime),
+            Self::NaiveTime(inner) => inner.value_at(idx).map(ScalarRefImpl::NaiveTime),
+            Self::Jsonb(inner) => inner.value_at(idx).map(ScalarRefImpl::Jsonb),
+            Self::Struct(inner) => inner.value_at(idx).map(ScalarRefImpl::Struct),
+            Self::List(inner) => inner.value_at(idx).map(ScalarRefImpl::List),
+            Self::Bytea(inner) => inner.value_at(idx).map(ScalarRefImpl::Bytea),
+            Self::Serial(inner) => inner.value_at(idx).map(ScalarRefImpl::Serial),
+        }
+    }
+
+    ///   # Safety
+    ///
+    ///   This function is unsafe because it does not check the validity of  `idx` . It is caller's
+    ///   responsibility to ensure the validity of  `idx` .
+    ///
+    ///   Unsafe version of getting the enum-wrapped  `ScalarRefImpl`  out of the  `Array` .
+    pub unsafe fn value_at_unchecked(&self, idx: usize) -> DatumRef<'_> {
+        match self {
+            Self::Int16(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Int16),
+            Self::Int32(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Int32),
+            Self::Int64(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Int64),
+            Self::Float32(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Float32),
+            Self::Float64(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Float64),
+            Self::Utf8(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Utf8),
+            Self::Bool(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Bool),
+            Self::Decimal(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Decimal),
+            Self::Interval(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Interval),
+            Self::NaiveDate(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::NaiveDate),
+            Self::NaiveDateTime(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::NaiveDateTime),
+            Self::NaiveTime(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::NaiveTime),
+            Self::Jsonb(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Jsonb),
+            Self::Struct(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Struct),
+            Self::List(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::List),
+            Self::Bytea(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Bytea),
+            Self::Serial(inner) => inner.value_at_unchecked(idx).map(ScalarRefImpl::Serial),
+        }
+    }
+
+    pub fn set_bitmap(&mut self, bitmap: Bitmap) {
+        match self {
+            Self::Int16(inner) => inner.set_bitmap(bitmap),
+            Self::Int32(inner) => inner.set_bitmap(bitmap),
+            Self::Int64(inner) => inner.set_bitmap(bitmap),
+            Self::Float32(inner) => inner.set_bitmap(bitmap),
+            Self::Float64(inner) => inner.set_bitmap(bitmap),
+            Self::Utf8(inner) => inner.set_bitmap(bitmap),
+            Self::Bool(inner) => inner.set_bitmap(bitmap),
+            Self::Decimal(inner) => inner.set_bitmap(bitmap),
+            Self::Interval(inner) => inner.set_bitmap(bitmap),
+            Self::NaiveDate(inner) => inner.set_bitmap(bitmap),
+            Self::NaiveDateTime(inner) => inner.set_bitmap(bitmap),
+            Self::NaiveTime(inner) => inner.set_bitmap(bitmap),
+            Self::Jsonb(inner) => inner.set_bitmap(bitmap),
+            Self::Struct(inner) => inner.set_bitmap(bitmap),
+            Self::List(inner) => inner.set_bitmap(bitmap),
+            Self::Bytea(inner) => inner.set_bitmap(bitmap),
+            Self::Serial(inner) => inner.set_bitmap(bitmap),
+        }
+    }
+
+    pub fn create_builder(&self, capacity: usize) -> ArrayBuilderImpl {
+        match self {
+            Self::Int16(inner) => inner.create_builder(capacity),
+            Self::Int32(inner) => inner.create_builder(capacity),
+            Self::Int64(inner) => inner.create_builder(capacity),
+            Self::Float32(inner) => inner.create_builder(capacity),
+            Self::Float64(inner) => inner.create_builder(capacity),
+            Self::Utf8(inner) => inner.create_builder(capacity),
+            Self::Bool(inner) => inner.create_builder(capacity),
+            Self::Decimal(inner) => inner.create_builder(capacity),
+            Self::Interval(inner) => inner.create_builder(capacity),
+            Self::NaiveDate(inner) => inner.create_builder(capacity),
+            Self::NaiveDateTime(inner) => inner.create_builder(capacity),
+            Self::NaiveTime(inner) => inner.create_builder(capacity),
+            Self::Jsonb(inner) => inner.create_builder(capacity),
+            Self::Struct(inner) => inner.create_builder(capacity),
+            Self::List(inner) => inner.create_builder(capacity),
+            Self::Bytea(inner) => inner.create_builder(capacity),
+            Self::Serial(inner) => inner.create_builder(capacity),
+        }
+    }
+}
+
 
 impl ArrayImpl {
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = DatumRef<'_>> + ExactSizeIterator {

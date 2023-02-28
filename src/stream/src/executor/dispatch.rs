@@ -592,6 +592,11 @@ impl Dispatcher for HashDataDispatcher {
 
             // get hash value of every line by its key
             let hash_builder = Crc32FastBuilder;
+
+            let xx = chunk.data_chunk().get_hash_values(&self.keys, hash_builder.clone()).clone();
+            let x = xx.iter().collect_vec();
+            println!("hash code {:?}", x);
+
             let vnodes = chunk
                 .data_chunk()
                 .get_hash_values(&self.keys, hash_builder)

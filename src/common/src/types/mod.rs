@@ -131,6 +131,9 @@ pub enum DataType {
     #[display("jsonb")]
     #[from_str(regex = "(?i)^jsonb$")]
     Jsonb,
+    #[display("serial")]
+    #[from_str(regex = "(?i)^serial$")]
+    Serial,
 }
 
 impl std::str::FromStr for Box<DataType> {
@@ -148,6 +151,7 @@ impl DataTypeName {
             | DataTypeName::Int16
             | DataTypeName::Int32
             | DataTypeName::Int64
+            | DataTypeName::Serial
             | DataTypeName::Decimal
             | DataTypeName::Float32
             | DataTypeName::Float64
@@ -170,6 +174,7 @@ impl DataTypeName {
             DataTypeName::Int16 => DataType::Int16,
             DataTypeName::Int32 => DataType::Int32,
             DataTypeName::Int64 => DataType::Int64,
+            DataTypeName::Serial => DataType::Serial,
             DataTypeName::Decimal => DataType::Decimal,
             DataTypeName::Float32 => DataType::Float32,
             DataTypeName::Float64 => DataType::Float64,
@@ -257,6 +262,7 @@ impl DataType {
             DataType::Int16 => PrimitiveArrayBuilder::<i16>::new(capacity).into(),
             DataType::Int32 => PrimitiveArrayBuilder::<i32>::new(capacity).into(),
             DataType::Int64 => PrimitiveArrayBuilder::<i64>::new(capacity).into(),
+            DataType::Serial => PrimitiveArrayBuilder::<i64>::new(capacity).into(),
             DataType::Float32 => PrimitiveArrayBuilder::<OrderedF32>::new(capacity).into(),
             DataType::Float64 => PrimitiveArrayBuilder::<OrderedF64>::new(capacity).into(),
             DataType::Decimal => DecimalArrayBuilder::new(capacity).into(),
@@ -286,6 +292,7 @@ impl DataType {
             DataType::Int16 => TypeName::Int16,
             DataType::Int32 => TypeName::Int32,
             DataType::Int64 => TypeName::Int64,
+            DataType::Serial => TypeName::Int64,
             DataType::Float32 => TypeName::Float,
             DataType::Float64 => TypeName::Double,
             DataType::Boolean => TypeName::Boolean,
@@ -368,6 +375,7 @@ impl DataType {
             DataType::Int16 => ScalarImpl::Int16(i16::MIN),
             DataType::Int32 => ScalarImpl::Int32(i32::MIN),
             DataType::Int64 => ScalarImpl::Int64(i64::MIN),
+            DataType::Serial => ScalarImpl::Int64(i64::MIN),
             DataType::Float32 => ScalarImpl::Float32(OrderedF32::neg_infinity()),
             DataType::Float64 => ScalarImpl::Float64(OrderedF64::neg_infinity()),
             DataType::Boolean => ScalarImpl::Bool(false),
@@ -896,6 +904,7 @@ impl ScalarImpl {
             Ty::Int16 => Self::Int16(i16::deserialize(de)?),
             Ty::Int32 => Self::Int32(i32::deserialize(de)?),
             Ty::Int64 => Self::Int64(i64::deserialize(de)?),
+            Ty::Serial => Self::Int64(i64::deserialize(de)?),
             Ty::Float32 => Self::Float32(f32::deserialize(de)?.into()),
             Ty::Float64 => Self::Float64(f64::deserialize(de)?.into()),
             Ty::Varchar => Self::Utf8(Box::<str>::deserialize(de)?),
@@ -946,6 +955,7 @@ impl ScalarImpl {
                     DataType::Int16 => size_of::<i16>(),
                     DataType::Int32 => size_of::<i32>(),
                     DataType::Int64 => size_of::<i64>(),
+                    DataType::Serial => size_of::<i64>(),
                     DataType::Float32 => size_of::<OrderedF32>(),
                     DataType::Float64 => size_of::<OrderedF64>(),
                     DataType::Date => size_of::<NaiveDateWrapper>(),

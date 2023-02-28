@@ -42,6 +42,7 @@ fn do_parse_simd_json_value(dtype: &DataType, v: &BorrowedValue<'_>) -> Result<S
                 .map_err(|e| anyhow!("expect i32: {}", e))?,
         ),
         DataType::Int64 => ensure_int!(v, i64).into(),
+        DataType::Serial => ensure_int!(v, i64).into(),
         DataType::Float32 => ScalarImpl::Float32((simd_json_ensure_float!(v, f32) as f32).into()),
         DataType::Float64 => ScalarImpl::Float64((simd_json_ensure_float!(v, f64)).into()),
         // FIXME: decimal should have more precision than f64
