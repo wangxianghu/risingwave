@@ -24,6 +24,9 @@ while getopts 't:p:' opt; do
 done
 shift $((OPTIND -1))
 
+echo "--- Install mold"
+apt install -y mold
+
 echo "--- Rust cargo-sort check"
 cargo sort --check --workspace
 
