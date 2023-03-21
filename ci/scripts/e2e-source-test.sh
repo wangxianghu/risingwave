@@ -122,6 +122,7 @@ pkill -f connector-node
 cargo make ci-kill
 
 echo "--- e2e, ci-1cn-1fe, nexmark endless"
+RUST_LOG="info,risingwave_stream=info,risingwave_batch=info,risingwave_storage=info"
 cargo make ci-start ci-1cn-1fe
 sqllogictest -p 4566 -d dev './e2e_test/source/nexmark_endless_mvs/*.slt'
 sqllogictest -p 4566 -d dev './e2e_test/source/nexmark_endless_sinks/*.slt'
