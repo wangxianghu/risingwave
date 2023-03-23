@@ -43,11 +43,11 @@ else
   set_env RISEDEV_CARGO_BUILD_CRATE "risingwave_cmd"
 end
 
-if ${is_hdfs_backend}
-  set_env BUILD_HDFS_BACKEND_CMD "-p risingwave_object_store --features hdfs-backend"
-else
-  set_env BUILD_HDFS_BACKEND_CMD ""
-end
+# if ${is_hdfs_backend}
+#   set_env BUILD_HDFS_BACKEND_CMD "-p risingwave_object_store --features hdfs-backend"
+# else
+set_env BUILD_HDFS_BACKEND_CMD ""
+# end
 
 ''',
 ]
