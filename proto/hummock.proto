@@ -97,6 +97,7 @@ message UncommittedEpoch {
 
 message StateTableInfo {
   uint32 table_id = 1;
+  // Compaction needs to cut this state table when 1/weight of vnodes in this table have been processed.
   uint32 weight = 2;
 }
 
