@@ -19,6 +19,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::{pin_mut, TryStreamExt};
 use risingwave_common::catalog::TableId;
+use risingwave_common::hash::VirtualNode;
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::{
     HummockEpoch, HummockReadEpoch, HummockSstableObjectId, LocalSstableInfo,
@@ -780,7 +781,7 @@ async fn test_write_anytime_inner(
                 "111".as_bytes(),
                 hummock_storage
                     .get(
-                        Bytes::from("aa"),
+                        Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
                         epoch,
                         ReadOptions {
                             ignore_range_tombstone: false,
@@ -800,7 +801,7 @@ async fn test_write_anytime_inner(
                 "222".as_bytes(),
                 hummock_storage
                     .get(
-                        Bytes::from("bb"),
+                        Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb"].concat()),
                         epoch,
                         ReadOptions {
                             ignore_range_tombstone: false,
@@ -820,7 +821,7 @@ async fn test_write_anytime_inner(
                 "333".as_bytes(),
                 hummock_storage
                     .get(
-                        Bytes::from("cc"),
+                        Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc"].concat()),
                         epoch,
                         ReadOptions {
                             ignore_range_tombstone: false,
@@ -840,8 +841,12 @@ async fn test_write_anytime_inner(
             let iter = hummock_storage
                 .iter(
                     (
-                        Bound::Included(Bytes::from("aa")),
-                        Bound::Included(Bytes::from("cc")),
+                        Bound::Included(Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat(),
+                        )),
+                        Bound::Included(Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc"].concat(),
+                        )),
                     ),
                     epoch,
                     ReadOptions {
@@ -859,21 +864,39 @@ async fn test_write_anytime_inner(
             futures::pin_mut!(iter);
             assert_eq!(
                 (
-                    FullKey::for_test(TableId::default(), b"aa".to_vec().into(), epoch),
+                    FullKey::for_test(
+                        TableId::default(),
+                        Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa".as_slice()].concat()
+                        ),
+                        epoch
+                    ),
                     Bytes::from("111")
                 ),
                 iter.try_next().await.unwrap().unwrap()
             );
             assert_eq!(
                 (
-                    FullKey::for_test(TableId::default(), b"bb".to_vec().into(), epoch),
+                    FullKey::for_test(
+                        TableId::default(),
+                        Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb".as_slice()].concat()
+                        ),
+                        epoch
+                    ),
                     Bytes::from("222")
                 ),
                 iter.try_next().await.unwrap().unwrap()
             );
             assert_eq!(
                 (
-                    FullKey::for_test(TableId::default(), b"cc".to_vec().into(), epoch),
+                    FullKey::for_test(
+                        TableId::default(),
+                        Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc".as_slice()].concat()
+                        ),
+                        epoch
+                    ),
                     Bytes::from("333")
                 ),
                 iter.try_next().await.unwrap().unwrap()
@@ -883,9 +906,18 @@ async fn test_write_anytime_inner(
     };
 
     let batch1 = vec![
-        (Bytes::from("aa"), StorageValue::new_put("111")),
-        (Bytes::from("bb"), StorageValue::new_put("222")),
-        (Bytes::from("cc"), StorageValue::new_put("333")),
+        (
+            Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
+            StorageValue::new_put("111"),
+        ),
+        (
+            Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb"].concat()),
+            StorageValue::new_put("222"),
+        ),
+        (
+            Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc"].concat()),
+            StorageValue::new_put("333"),
+        ),
     ];
 
     let mut local = hummock_storage.new_local(NewLocalOptions::default()).await;
@@ -912,7 +944,7 @@ async fn test_write_anytime_inner(
                 "111_new".as_bytes(),
                 hummock_storage
                     .get(
-                        Bytes::from("aa"),
+                        Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
                         epoch,
                         ReadOptions {
                             ignore_range_tombstone: false,
@@ -931,7 +963,7 @@ async fn test_write_anytime_inner(
 
             assert!(hummock_storage
                 .get(
-                    Bytes::from("bb"),
+                    Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb"].concat()),
                     epoch,
                     ReadOptions {
                         ignore_range_tombstone: false,
@@ -950,7 +982,7 @@ async fn test_write_anytime_inner(
                 "333".as_bytes(),
                 hummock_storage
                     .get(
-                        Bytes::from("cc"),
+                        Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc"].concat()),
                         epoch,
                         ReadOptions {
                             ignore_range_tombstone: false,
@@ -969,8 +1001,12 @@ async fn test_write_anytime_inner(
             let iter = hummock_storage
                 .iter(
                     (
-                        Bound::Included(Bytes::from("aa")),
-                        Bound::Included(Bytes::from("cc")),
+                        Bound::Included(Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat(),
+                        )),
+                        Bound::Included(Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc"].concat(),
+                        )),
                     ),
                     epoch,
                     ReadOptions {
@@ -988,14 +1024,26 @@ async fn test_write_anytime_inner(
             futures::pin_mut!(iter);
             assert_eq!(
                 (
-                    FullKey::for_test(TableId::default(), b"aa".to_vec().into(), epoch),
+                    FullKey::for_test(
+                        TableId::default(),
+                        Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa".as_slice()].concat()
+                        ),
+                        epoch
+                    ),
                     Bytes::from("111_new")
                 ),
                 iter.try_next().await.unwrap().unwrap()
             );
             assert_eq!(
                 (
-                    FullKey::for_test(TableId::default(), b"cc".to_vec().into(), epoch),
+                    FullKey::for_test(
+                        TableId::default(),
+                        Bytes::from(
+                            [VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc".as_slice()].concat()
+                        ),
+                        epoch
+                    ),
                     Bytes::from("333")
                 ),
                 iter.try_next().await.unwrap().unwrap()
@@ -1006,8 +1054,14 @@ async fn test_write_anytime_inner(
 
     // Update aa, delete bb, cc unchanged
     let batch2 = vec![
-        (Bytes::from("aa"), StorageValue::new_put("111_new")),
-        (Bytes::from("bb"), StorageValue::new_delete()),
+        (
+            Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
+            StorageValue::new_put("111_new"),
+        ),
+        (
+            Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb"].concat()),
+            StorageValue::new_delete(),
+        ),
     ];
 
     local

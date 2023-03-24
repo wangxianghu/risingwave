@@ -763,13 +763,13 @@ mod tests {
                 .unwrap(),
             vec![
                 (
-                    FullKey::for_test(Default::default(), Bytes::from("a"), 0)
+                    FullKey::for_test(Default::default(), b"a", 0)
                         .encode()
                         .into(),
                     b"v1".to_vec().into()
                 ),
                 (
-                    FullKey::for_test(Default::default(), Bytes::from("b"), 0)
+                    FullKey::for_test(Default::default(), b"b", 0)
                         .encode()
                         .into(),
                     b"v1".to_vec().into()
@@ -789,7 +789,7 @@ mod tests {
                 )
                 .unwrap(),
             vec![(
-                FullKey::for_test(Default::default(), b"a".to_vec(), 0)
+                FullKey::for_test(Default::default(), b"a", 0)
                     .encode()
                     .into(),
                 b"v1".to_vec().into()
@@ -808,7 +808,7 @@ mod tests {
                 )
                 .unwrap(),
             vec![(
-                FullKey::for_test(Default::default(), b"a".to_vec(), 1)
+                FullKey::for_test(Default::default(), b"a", 1)
                     .encode()
                     .into(),
                 b"v2".to_vec().into()

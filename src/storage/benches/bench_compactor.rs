@@ -19,6 +19,7 @@ use std::sync::Arc;
 use criterion::async_executor::FuturesExecutor;
 use criterion::{criterion_group, criterion_main, Criterion};
 use risingwave_common::catalog::TableId;
+use risingwave_common::hash::VirtualNode;
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::key_range::KeyRange;
 use risingwave_object_store::object::object_metrics::ObjectStoreMetrics;
@@ -66,7 +67,11 @@ pub fn default_writer_opts() -> SstableWriterOptions {
 pub fn test_key_of(idx: usize, epoch: u64) -> FullKey<Vec<u8>> {
     FullKey::for_test(
         TableId::default(),
-        format!("key_test_{:08}", idx * 2).as_bytes().to_vec(),
+        [
+            VirtualNode::ZERO.to_be_bytes().as_slice(),
+            format!("key_test_{:08}", idx * 2).as_bytes(),
+        ]
+        .concat(),
         epoch,
     )
 }

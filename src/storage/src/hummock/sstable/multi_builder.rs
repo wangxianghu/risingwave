@@ -469,8 +469,26 @@ mod tests {
         let table_id = TableId::default();
         let mut builder = DeleteRangeAggregatorBuilder::default();
         builder.add_tombstone(vec![
-            DeleteRangeTombstone::new(table_id, b"k".to_vec(), b"kkk".to_vec(), 100),
-            DeleteRangeTombstone::new(table_id, b"aaa".to_vec(), b"ddd".to_vec(), 200),
+            DeleteRangeTombstone::new(
+                table_id,
+                [VirtualNode::ZERO.to_be_bytes().as_slice(), b"k"]
+                    .concat()
+                    .to_vec(),
+                [VirtualNode::ZERO.to_be_bytes().as_slice(), b"kkk"]
+                    .concat()
+                    .to_vec(),
+                100,
+            ),
+            DeleteRangeTombstone::new(
+                table_id,
+                [VirtualNode::ZERO.to_be_bytes().as_slice(), b"aaa"]
+                    .concat()
+                    .to_vec(),
+                [VirtualNode::ZERO.to_be_bytes().as_slice(), b"ddd"]
+                    .concat()
+                    .to_vec(),
+                200,
+            ),
         ]);
         let empty_btree_map = BTreeMap::new();
         let mut builder = CapacitySplitTableBuilder::new(
@@ -484,7 +502,11 @@ mod tests {
         );
         builder
             .add_full_key(
-                FullKey::for_test(table_id, b"k", 233),
+                FullKey::for_test(
+                    table_id,
+                    &[VirtualNode::ZERO.to_be_bytes().as_slice(), b"k"].concat(),
+                    233,
+                ),
                 HummockValue::put(b"v"),
                 false,
             )
@@ -500,11 +522,21 @@ mod tests {
             .unwrap();
         assert_eq!(
             key_range.left,
-            FullKey::for_test(table_id, b"aaa", 200).encode()
+            FullKey::for_test(
+                table_id,
+                &[VirtualNode::ZERO.to_be_bytes().as_slice(), b"aaa"].concat(),
+                200
+            )
+            .encode()
         );
         assert_eq!(
             key_range.right,
-            FullKey::for_test(table_id, b"kkk", u64::MAX).encode()
+            FullKey::for_test(
+                table_id,
+                &[VirtualNode::ZERO.to_be_bytes().as_slice(), b"kkk"].concat(),
+                u64::MAX
+            )
+            .encode()
         );
     }
 
