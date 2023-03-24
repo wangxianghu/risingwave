@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -21,7 +21,7 @@ use risingwave_hummock_sdk::can_concat;
 use risingwave_hummock_sdk::filter_key_extractor::FilterKeyExtractorImpl;
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::key_range::{KeyRange, KeyRangeCommon};
-use risingwave_pb::hummock::{CompactTask, LevelType};
+use risingwave_pb::hummock::{CompactTask, LevelType, PbStateTableInfo};
 
 use super::task_progress::TaskProgress;
 use super::TaskConfig;
@@ -78,7 +78,11 @@ impl CompactorRunner {
                 cache_policy: CachePolicy::NotFill,
                 gc_delete_keys: task.gc_delete_keys,
                 watermark: task.watermark,
-                stats_target_table_ids: Some(HashSet::from_iter(task.existing_table_ids.clone())),
+                stats_target_table_ids: Some(BTreeMap::from_iter(
+                    task.existing_tables
+                        .iter()
+                        .map(|&PbStateTableInfo { table_id, weight }| (table_id, weight)),
+                )),
                 task_type: task.task_type(),
                 split_by_table: task.split_by_state_table,
             },
@@ -170,7 +174,11 @@ impl CompactorRunner {
                     .cloned()
                     .collect_vec();
                 table_iters.push(ConcatSstableIterator::new(
-                    self.compact_task.existing_table_ids.clone(),
+                    self.compact_task
+                        .existing_tables
+                        .iter()
+                        .map(|state_table_info| state_table_info.get_table_id())
+                        .collect_vec(),
                     tables,
                     self.compactor.task_config.key_range.clone(),
                     self.sstable_store.clone(),
@@ -182,7 +190,11 @@ impl CompactorRunner {
                         continue;
                     }
                     table_iters.push(ConcatSstableIterator::new(
-                        self.compact_task.existing_table_ids.clone(),
+                        self.compact_task
+                            .existing_tables
+                            .iter()
+                            .map(|state_table_info| state_table_info.get_table_id())
+                            .collect_vec(),
                         vec![table_info.clone()],
                         self.compactor.task_config.key_range.clone(),
                         self.sstable_store.clone(),
@@ -232,11 +244,17 @@ mod tests {
                 level_type: 0,
                 table_infos: vec![sstable_info],
             }],
-            existing_table_ids: vec![2],
+            existing_tables: vec![PbStateTableInfo {
+                table_id: 2,
+                weight: 0,
+            }],
             ..Default::default()
         };
         let mut state_clean_up_filter = StateCleanUpCompactionFilter::new(HashSet::from_iter(
-            compact_task.existing_table_ids.clone(),
+            compact_task
+                .existing_tables
+                .iter()
+                .map(|state_table_info| state_table_info.get_table_id()),
         ));
         let collector = CompactorRunner::build_delete_range_iter(
             &compact_task,

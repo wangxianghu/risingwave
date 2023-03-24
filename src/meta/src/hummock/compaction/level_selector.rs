@@ -447,7 +447,11 @@ impl LevelSelector for SpaceReclaimCompactionSelector {
         let dynamic_level_core = DynamicLevelSelectorCore::new(group.compaction_config.clone());
         let mut picker = SpaceReclaimCompactionPicker::new(
             group.compaction_config.max_space_reclaim_bytes,
-            levels.member_table_ids.iter().cloned().collect(),
+            levels
+                .member_tables
+                .iter()
+                .map(|state_table_info| state_table_info.get_table_id())
+                .collect(),
         );
         let ctx = dynamic_level_core.calculate_level_base_size(levels);
         let state = self
@@ -530,7 +534,9 @@ pub mod tests {
     use itertools::Itertools;
     use risingwave_common::constants::hummock::CompactionFilterFlag;
     use risingwave_pb::hummock::compaction_config::CompactionMode;
-    use risingwave_pb::hummock::{KeyRange, Level, LevelType, OverlappingLevel, SstableInfo};
+    use risingwave_pb::hummock::{
+        KeyRange, Level, LevelType, OverlappingLevel, PbStateTableInfo, SstableInfo,
+    };
 
     use super::*;
     use crate::hummock::compaction::compaction_config::CompactionConfigBuilder;
@@ -836,7 +842,10 @@ pub mod tests {
                 3,
                 10,
             ))),
-            member_table_ids: vec![1],
+            member_tables: vec![PbStateTableInfo {
+                table_id: 1,
+                weight: 0,
+            }],
             ..Default::default()
         };
 

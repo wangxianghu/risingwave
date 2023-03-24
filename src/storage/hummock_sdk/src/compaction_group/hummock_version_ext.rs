@@ -345,14 +345,21 @@ impl HummockVersionUpdateExt for HummockVersion {
                 );
                 let parent_group_id = group_construct.parent_group_id;
                 new_levels.parent_group_id = parent_group_id;
-                new_levels.member_table_ids = group_construct.table_ids.clone();
+                new_levels.member_tables = group_construct.tables.clone();
                 self.levels.insert(*compaction_group_id, new_levels);
-                sst_split_info.extend(self.init_with_parent_group(
-                    parent_group_id,
-                    *compaction_group_id,
-                    HashSet::from_iter(group_construct.table_ids.clone()),
-                    group_construct.get_new_sst_start_id(),
-                ));
+                sst_split_info.extend(
+                    self.init_with_parent_group(
+                        parent_group_id,
+                        *compaction_group_id,
+                        HashSet::from_iter(
+                            group_construct
+                                .tables
+                                .iter()
+                                .map(|state_table_info| state_table_info.get_table_id()),
+                        ),
+                        group_construct.get_new_sst_start_id(),
+                    ),
+                );
             } else if let Some(group_change) = &summary.group_table_change {
                 sst_split_info.extend(self.init_with_parent_group(
                     group_change.origin_group_id,
@@ -365,9 +372,15 @@ impl HummockVersionUpdateExt for HummockVersion {
                     .levels
                     .get_mut(&group_change.origin_group_id)
                     .expect("compaction group should exist");
-                levels
-                    .member_table_ids
-                    .drain_filter(|t| group_change.table_ids.contains(t));
+                let mut moving_tables = levels
+                    .member_tables
+                    .drain_filter(|t| group_change.table_ids.contains(&t.table_id))
+                    .collect_vec();
+                self.levels
+                    .get_mut(compaction_group_id)
+                    .expect("compaction group should exist")
+                    .member_tables
+                    .append(&mut moving_tables);
             }
             let has_destroy = summary.group_destroy.is_some();
             let levels = self
@@ -377,12 +390,14 @@ impl HummockVersionUpdateExt for HummockVersion {
 
             for group_meta_delta in &summary.group_meta_changes {
                 levels
-                    .member_table_ids
-                    .extend(group_meta_delta.table_ids_add.clone());
+                    .member_tables
+                    .extend(group_meta_delta.tables_add.clone());
                 levels
-                    .member_table_ids
-                    .drain_filter(|t| group_meta_delta.table_ids_remove.contains(t));
-                levels.member_table_ids.sort();
+                    .member_tables
+                    .drain_filter(|t| group_meta_delta.table_ids_remove.contains(&t.table_id));
+                levels
+                    .member_tables
+                    .sort_by_key(|state_table_info| state_table_info.table_id);
             }
 
             assert!(
@@ -434,8 +449,11 @@ impl HummockVersionUpdateExt for HummockVersion {
     fn build_compaction_group_info(&self) -> HashMap<TableId, CompactionGroupId> {
         let mut ret = HashMap::new();
         for (compaction_group_id, levels) in &self.levels {
-            for table_id in &levels.member_table_ids {
-                ret.insert(TableId::new(*table_id), *compaction_group_id);
+            for state_table_info in &levels.member_tables {
+                ret.insert(
+                    TableId::new(state_table_info.get_table_id()),
+                    *compaction_group_id,
+                );
             }
         }
         ret
@@ -582,7 +600,7 @@ pub fn build_initial_compaction_group_levels(
         }),
         group_id,
         parent_group_id: StaticCompactionGroupId::NewCompactionGroup as _,
-        member_table_ids: vec![],
+        member_tables: vec![],
     }
 }
 
@@ -636,7 +654,11 @@ pub fn try_get_compaction_group_id_by_table_id(
     table_id: StateTableId,
 ) -> Option<CompactionGroupId> {
     for (group_id, levels) in &version.levels {
-        if levels.member_table_ids.contains(&table_id) {
+        if levels
+            .member_tables
+            .iter()
+            .any(|state_table_info| state_table_info.table_id == table_id)
+        {
             return Some(*group_id);
         }
     }
@@ -653,7 +675,12 @@ pub fn get_member_table_ids(version: &HummockVersion) -> HashSet<StateTableId> {
     version
         .levels
         .iter()
-        .flat_map(|(_, levels)| levels.member_table_ids.clone())
+        .flat_map(|(_, levels)| {
+            levels
+                .member_tables
+                .iter()
+                .map(|state_table_info| state_table_info.get_table_id())
+        })
         .collect()
 }
 

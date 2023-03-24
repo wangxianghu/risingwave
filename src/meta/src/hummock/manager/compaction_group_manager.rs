@@ -30,7 +30,7 @@ use risingwave_pb::hummock::hummock_version_delta::GroupDeltas;
 use risingwave_pb::hummock::rise_ctl_update_compaction_config_request::mutable_config::MutableConfig;
 use risingwave_pb::hummock::{
     compact_task, CompactionConfig, CompactionGroupInfo, GroupConstruct, GroupDelta, GroupDestroy,
-    GroupMetaChange, GroupTableChange,
+    GroupMetaChange, GroupTableChange, PbStateTableInfo,
 };
 use tokio::sync::{OnceCell, RwLock};
 
@@ -240,7 +240,10 @@ impl<S: MetaStore> HummockManager<S> {
                 .group_deltas;
             group_deltas.push(GroupDelta {
                 delta_type: Some(DeltaType::GroupMetaChange(GroupMetaChange {
-                    table_ids_add: vec![*table_id],
+                    tables_add: vec![PbStateTableInfo {
+                        table_id: *table_id,
+                        weight: 0,
+                    }],
                     ..Default::default()
                 })),
             });
@@ -304,7 +307,7 @@ impl<S: MetaStore> HummockManager<S> {
                 .or_insert(
                     current_version
                         .get_compaction_group_levels(group_id)
-                        .member_table_ids
+                        .member_tables
                         .len() as u64
                         - 1,
                 );
@@ -412,7 +415,11 @@ impl<S: MetaStore> HummockManager<S> {
             let group = CompactionGroupInfo {
                 id: levels.group_id,
                 parent_id: levels.parent_group_id,
-                member_table_ids: levels.member_table_ids.clone(),
+                member_table_ids: levels
+                    .member_tables
+                    .iter()
+                    .map(|state_table_info| state_table_info.get_table_id())
+                    .collect_vec(),
                 compaction_config: Some(config.as_ref().clone()),
             };
             compaction_groups.push(group);
@@ -453,15 +460,23 @@ impl<S: MetaStore> HummockManager<S> {
             .levels
             .get(&parent_group_id)
             .ok_or_else(|| Error::CompactionGroup(format!("invalid group {}", parent_group_id)))?;
+        let mut state_table_infos = Vec::with_capacity(table_ids.len());
         for table_id in &table_ids {
-            if !parent_group.member_table_ids.contains(table_id) {
+            if !parent_group.member_tables.iter().any(|state_table_info| {
+                if &state_table_info.table_id == table_id {
+                    state_table_infos.push(state_table_info.clone());
+                    true
+                } else {
+                    false
+                }
+            }) {
                 return Err(Error::CompactionGroup(format!(
                     "table {} doesn't in group {}",
                     table_id, parent_group_id
                 )));
             }
         }
-        if table_ids.len() == parent_group.member_table_ids.len() {
+        if table_ids.len() == parent_group.member_tables.len() {
             return Err(Error::CompactionGroup(format!(
                 "invalid split attempt for group {}: all member tables are moved",
                 parent_group_id
@@ -501,7 +516,11 @@ impl<S: MetaStore> HummockManager<S> {
                 match current_version.levels.get(&compaction_group_id) {
                     Some(group) => {
                         for table_id in &table_ids {
-                            if group.member_table_ids.contains(table_id) {
+                            if group
+                                .member_tables
+                                .iter()
+                                .any(|state_table_info| &state_table_info.table_id == table_id)
+                            {
                                 return Err(Error::CompactionGroup(format!(
                                     "table {} already exist in group {}",
                                     *table_id, compaction_group_id,
@@ -554,7 +573,7 @@ impl<S: MetaStore> HummockManager<S> {
                                 group_id: new_compaction_group_id,
                                 parent_group_id,
                                 new_sst_start_id,
-                                table_ids: table_ids.to_vec(),
+                                tables: state_table_infos,
                             })),
                         }],
                     },

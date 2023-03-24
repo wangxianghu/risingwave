@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -173,8 +174,11 @@ async fn compact<I: HummockIterator<Direction = Forward>>(iter: I, sstable_store
         bloom_false_positive: 0.001,
         compression_algorithm: CompressionAlgorithm::None,
     };
-    let mut builder =
-        CapacitySplitTableBuilder::for_test(LocalTableBuilderFactory::new(32, sstable_store, opt));
+    let empty_btree_map = BTreeMap::new();
+    let mut builder = CapacitySplitTableBuilder::for_test(
+        LocalTableBuilderFactory::new(32, sstable_store, opt),
+        empty_btree_map.iter(),
+    );
 
     let task_config = TaskConfig {
         key_range: KeyRange::inf(),

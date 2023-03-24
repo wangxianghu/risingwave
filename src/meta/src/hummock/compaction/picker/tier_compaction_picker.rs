@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use itertools::Itertools;
 use rand::thread_rng;
 use risingwave_pb::hummock::hummock_version::Levels;
 use risingwave_pb::hummock::{CompactionConfig, InputLevel, LevelType, OverlappingLevel};
@@ -379,7 +380,11 @@ impl CompactionPicker for TierCompactionPicker {
         if !self.config.split_by_state_table {
             return self.pick_whole_level(l0, &level_handlers[0], stats);
         }
-        let mut member_table_ids = levels.member_table_ids.clone();
+        let mut member_table_ids = levels
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec();
         for level in &l0.sub_levels {
             if level.level_type != LevelType::Nonoverlapping as i32 {
                 continue;

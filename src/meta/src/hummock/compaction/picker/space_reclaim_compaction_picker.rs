@@ -190,7 +190,7 @@ mod test {
     use std::collections::HashMap;
 
     use itertools::Itertools;
-    use risingwave_pb::hummock::compact_task;
+    use risingwave_pb::hummock::{compact_task, PbStateTableInfo};
     pub use risingwave_pb::hummock::{KeyRange, Level, LevelType};
 
     use super::*;
@@ -391,7 +391,13 @@ mod test {
                 }
             }
 
-            levels.member_table_ids = vec![2, 3, 4, 5, 6, 7, 8, 9, 10];
+            levels.member_tables = vec![2, 3, 4, 5, 6, 7, 8, 9, 10]
+                .into_iter()
+                .map(|table_id| PbStateTableInfo {
+                    table_id,
+                    weight: 0,
+                })
+                .collect_vec();
             // pick space reclaim
             let task = selector.pick_compaction(
                 1,
@@ -411,7 +417,13 @@ mod test {
                 }
             }
 
-            levels.member_table_ids = vec![2, 3, 4, 5, 6, 7, 8, 9];
+            levels.member_tables = vec![2, 3, 4, 5, 6, 7, 8, 9]
+                .into_iter()
+                .map(|table_id| PbStateTableInfo {
+                    table_id,
+                    weight: 0,
+                })
+                .collect_vec();
             // pick space reclaim
             let task = selector
                 .pick_compaction(
@@ -455,7 +467,13 @@ mod test {
             // rebuild selector
             selector = SpaceReclaimCompactionSelector::default();
             // cut range [3,4] [6] [8,9,10]
-            levels.member_table_ids = vec![2, 5, 7];
+            levels.member_tables = vec![2, 5, 7]
+                .into_iter()
+                .map(|table_id| PbStateTableInfo {
+                    table_id,
+                    weight: 0,
+                })
+                .collect_vec();
             let expect_task_file_count = vec![2, 1, 3];
             let expect_task_sst_id_range = vec![vec![3, 4], vec![6], vec![8, 9, 10]];
             for (index, x) in expect_task_file_count.iter().enumerate() {
@@ -505,12 +523,24 @@ mod test {
             // rebuild selector
             selector = SpaceReclaimCompactionSelector::default();
             // cut range [3,4] [6] [8,9,10]
-            levels.member_table_ids = vec![2, 5, 7];
+            levels.member_tables = vec![2, 5, 7]
+                .into_iter()
+                .map(|table_id| PbStateTableInfo {
+                    table_id,
+                    weight: 0,
+                })
+                .collect_vec();
             let expect_task_file_count = vec![2, 1, 4];
             let expect_task_sst_id_range = vec![vec![3, 4], vec![6], vec![7, 8, 9, 10]];
             for (index, x) in expect_task_file_count.iter().enumerate() {
                 if index == expect_task_file_count.len() - 1 {
-                    levels.member_table_ids = vec![2, 5];
+                    levels.member_tables = vec![2, 5]
+                        .into_iter()
+                        .map(|table_id| PbStateTableInfo {
+                            table_id,
+                            weight: 0,
+                        })
+                        .collect_vec();
                 }
 
                 // // pick space reclaim

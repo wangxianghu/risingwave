@@ -21,7 +21,7 @@ mod iterator;
 mod shared_buffer_compact;
 pub(super) mod task_progress;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ops::Div;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -176,7 +176,12 @@ impl Compactor {
 
         let multi_filter_key_extractor = context
             .filter_key_extractor_manager
-            .acquire(HashSet::from_iter(compact_task.existing_table_ids.clone()))
+            .acquire(HashSet::from_iter(
+                compact_task
+                    .existing_tables
+                    .iter()
+                    .map(|state_table_info| state_table_info.get_table_id()),
+            ))
             .await;
         let multi_filter_key_extractor = Arc::new(multi_filter_key_extractor);
 
@@ -521,8 +526,8 @@ impl Compactor {
         (join_handle, shutdown_tx)
     }
 
-    pub async fn compact_and_build_sst<F>(
-        sst_builder: &mut CapacitySplitTableBuilder<F>,
+    pub async fn compact_and_build_sst<'a, F>(
+        sst_builder: &mut CapacitySplitTableBuilder<'a, F>,
         task_config: &TaskConfig,
         compactor_metrics: Arc<CompactorMetrics>,
         mut iter: impl HummockIterator<Direction = Forward>,
@@ -617,7 +622,7 @@ impl Compactor {
 
                 let should_count = match task_config.stats_target_table_ids.as_ref() {
                     Some(target_table_ids) => {
-                        target_table_ids.contains(&last_key.user_key.table_id.table_id)
+                        target_table_ids.contains_key(&last_key.user_key.table_id.table_id)
                     }
                     None => true,
                 };
@@ -782,12 +787,19 @@ impl Compactor {
             _phantom: PhantomData,
         };
 
+        let empty_btree_map = BTreeMap::new();
+        let table_weights = self
+            .task_config
+            .stats_target_table_ids
+            .as_ref()
+            .map_or(empty_btree_map.iter(), |weights_map| weights_map.iter());
         let mut sst_builder = CapacitySplitTableBuilder::new(
             builder_factory,
             self.context.compactor_metrics.clone(),
             task_progress,
             del_agg,
             self.task_config.key_range.clone(),
+            table_weights,
             self.task_config.split_by_table,
         );
         let compaction_statistics = Compactor::compact_and_build_sst(

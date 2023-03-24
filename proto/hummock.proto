@@ -61,13 +61,13 @@ message GroupConstruct {
   CompactionConfig group_config = 1;
   // If `parent_group_id` is not 0, it means `parent_group_id` splits into `parent_group_id` and this group, so this group is not empty initially.
   uint64 parent_group_id = 2;
-  repeated uint32 table_ids = 3;
+  repeated StateTableInfo tables = 3;
   uint64 group_id = 4;
   uint64 new_sst_start_id = 5;
 }
 
 message GroupMetaChange {
-  repeated uint32 table_ids_add = 1;
+  repeated StateTableInfo tables_add = 1;
   repeated uint32 table_ids_remove = 2;
 }
 
@@ -95,13 +95,18 @@ message UncommittedEpoch {
   repeated SstableInfo tables = 2;
 }
 
+message StateTableInfo {
+  uint32 table_id = 1;
+  uint32 weight = 2;
+}
+
 message HummockVersion {
   message Levels {
     repeated Level levels = 1;
     OverlappingLevel l0 = 2;
     uint64 group_id = 3;
     uint64 parent_group_id = 4;
-    repeated uint32 member_table_ids = 5;
+    repeated StateTableInfo member_tables = 5;
   }
   uint64 id = 1;
   // Levels of each compaction group
@@ -260,7 +265,7 @@ message CompactTask {
   // compaction group the task belongs to
   uint64 compaction_group_id = 12;
   // existing_table_ids for compaction drop key
-  repeated uint32 existing_table_ids = 13;
+  repeated StateTableInfo existing_tables = 13;
   uint32 compression_algorithm = 14;
   uint64 target_file_size = 15;
   uint32 compaction_filter_mask = 16;

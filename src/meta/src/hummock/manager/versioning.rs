@@ -169,8 +169,12 @@ impl Versioning {
         let mut found_sstable_repeated = false;
         let moving_table_ids: HashSet<&u32> = HashSet::from_iter(table_ids);
         if let Some(group) = self.current_version.levels.get(target_group_id) {
-            let target_member_table_ids: HashSet<u32> =
-                HashSet::from_iter(group.member_table_ids.clone());
+            let target_member_table_ids: HashSet<u32> = HashSet::from_iter(
+                group
+                    .member_tables
+                    .iter()
+                    .map(|state_table_info| state_table_info.get_table_id()),
+            );
             self.current_version.level_iter(*source_group_id, |level| {
                 for sst in &level.table_infos {
                     if sst
@@ -326,7 +330,11 @@ pub(super) fn calc_new_write_limits(
             new_write_limits.insert(
                 *id,
                 WriteLimit {
-                    table_ids: levels.member_table_ids.clone(),
+                    table_ids: levels
+                        .member_tables
+                        .iter()
+                        .map(|state_table_info| state_table_info.get_table_id())
+                        .collect_vec(),
                     reason: format!(
                         "too many L0 sub levels: {} > {}",
                         l0_sub_level_number, threshold

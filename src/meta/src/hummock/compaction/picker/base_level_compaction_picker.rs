@@ -53,7 +53,11 @@ impl CompactionPicker for LevelCompactionPicker {
         }
 
         if self.config.split_by_state_table {
-            let mut member_table_ids = levels.member_table_ids.clone();
+            let mut member_table_ids = levels
+                .member_tables
+                .iter()
+                .map(|state_table_info| state_table_info.get_table_id())
+                .collect_vec();
             for level in &l0.sub_levels {
                 if level.level_type != LevelType::Nonoverlapping as i32 {
                     continue;
@@ -192,6 +196,7 @@ impl LevelCompactionPicker {
 #[cfg(test)]
 pub mod tests {
     use itertools::Itertools;
+    use risingwave_pb::hummock::PbStateTableInfo;
 
     use super::*;
     use crate::hummock::compaction::compaction_config::CompactionConfigBuilder;
@@ -236,7 +241,10 @@ pub mod tests {
                     generate_table(1, 1, 201, 210, 1),
                 ],
             )],
-            member_table_ids: vec![1],
+            member_tables: vec![PbStateTableInfo {
+                table_id: 1,
+                weight: 0,
+            }],
             ..Default::default()
         };
         let mut local_stats = LocalPickerStatistic::default();
@@ -322,7 +330,10 @@ pub mod tests {
                 total_file_size: 0,
                 uncompressed_file_size: 0,
             }),
-            member_table_ids: vec![1],
+            member_tables: vec![PbStateTableInfo {
+                table_id: 1,
+                weight: 0,
+            }],
             ..Default::default()
         };
         push_tables_level0_nonoverlapping(&mut levels, vec![generate_table(1, 1, 50, 60, 2)]);
@@ -427,7 +438,10 @@ pub mod tests {
                 generate_table(1, 1, 100, 210, 2),
                 generate_table(2, 1, 200, 250, 2),
             ])),
-            member_table_ids: vec![1],
+            member_tables: vec![PbStateTableInfo {
+                table_id: 1,
+                weight: 0,
+            }],
             ..Default::default()
         };
         let mut levels_handler = vec![LevelHandler::new(0), LevelHandler::new(1)];
@@ -467,7 +481,10 @@ pub mod tests {
                 uncompressed_file_size: 590,
             }],
             l0: Some(generate_l0_nonoverlapping_sublevels(vec![])),
-            member_table_ids: vec![1],
+            member_tables: vec![PbStateTableInfo {
+                table_id: 1,
+                weight: 0,
+            }],
             ..Default::default()
         };
         push_tables_level0_nonoverlapping(
@@ -557,7 +574,10 @@ pub mod tests {
         let levels = Levels {
             l0: Some(l0),
             levels: vec![generate_level(1, vec![generate_table(3, 1, 0, 100000, 1)])],
-            member_table_ids: vec![1],
+            member_tables: vec![PbStateTableInfo {
+                table_id: 1,
+                weight: 0,
+            }],
             ..Default::default()
         };
         let levels_handler = vec![LevelHandler::new(0), LevelHandler::new(1)];
@@ -630,7 +650,10 @@ pub mod tests {
         let levels = Levels {
             l0: Some(l0),
             levels: vec![generate_level(1, vec![generate_table(3, 1, 0, 100000, 1)])],
-            member_table_ids: vec![1],
+            member_tables: vec![PbStateTableInfo {
+                table_id: 1,
+                weight: 0,
+            }],
             ..Default::default()
         };
         let mut levels_handler = vec![LevelHandler::new(0), LevelHandler::new(1)];

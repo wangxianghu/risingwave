@@ -1380,13 +1380,19 @@ async fn test_split_compaction_group_on_commit() {
     assert_eq!(
         current_version
             .get_compaction_group_levels(2)
-            .member_table_ids,
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec(),
         vec![100]
     );
     assert_eq!(
         current_version
             .get_compaction_group_levels(3)
-            .member_table_ids,
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec(),
         vec![101]
     );
     let branched_ssts = hummock_manager
@@ -1538,13 +1544,19 @@ async fn test_split_compaction_group_on_demand_basic() {
     assert_eq!(
         current_version
             .get_compaction_group_levels(2)
-            .member_table_ids,
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec(),
         vec![102]
     );
     assert_eq!(
         current_version
             .get_compaction_group_levels(new_group_id)
-            .member_table_ids,
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec(),
         vec![100, 101]
     );
     let branched_ssts = get_branched_ssts(&hummock_manager).await;
@@ -1614,13 +1626,19 @@ async fn test_split_compaction_group_on_demand_non_trivial() {
     assert_eq!(
         current_version
             .get_compaction_group_levels(2)
-            .member_table_ids,
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec(),
         vec![101]
     );
     assert_eq!(
         current_version
             .get_compaction_group_levels(new_group_id)
-            .member_table_ids,
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec(),
         vec![100]
     );
     let branched_ssts = get_branched_ssts(&hummock_manager).await;
@@ -1981,7 +1999,14 @@ async fn test_move_tables_between_compaction_group() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(compaction_task.existing_table_ids, vec![101, 102]);
+    assert_eq!(
+        compaction_task
+            .existing_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec(),
+        vec![101, 102]
+    );
     assert_eq!(compaction_task.input_ssts[0].table_infos.len(), 1);
     assert_eq!(compaction_task.input_ssts[0].table_infos[0].object_id, 12);
     compaction_task.sorted_output_ssts = vec![gen_sstable_info(20, 2, vec![101])];

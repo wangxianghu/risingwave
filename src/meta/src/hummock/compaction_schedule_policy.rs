@@ -497,7 +497,7 @@ mod tests {
             gc_delete_keys: false,
             task_status: TaskStatus::Pending as i32,
             compaction_group_id: StaticCompactionGroupId::StateDefault.into(),
-            existing_table_ids: vec![],
+            existing_tables: vec![],
             compression_algorithm: 0,
             target_file_size: 1,
             compaction_filter_mask: 0,

@@ -801,7 +801,10 @@ where
         let mut stats = LocalSelectorStatistic::default();
         let member_table_ids = &current_version
             .get_compaction_group_levels(compaction_group_id)
-            .member_table_ids;
+            .member_tables
+            .iter()
+            .map(|state_table_info| state_table_info.get_table_id())
+            .collect_vec();
         let table_id_to_option: HashMap<u32, _> = all_table_id_to_option
             .into_iter()
             .filter(|(table_id, _)| member_table_ids.contains(table_id))
@@ -823,11 +826,11 @@ where
             Some(task) => task,
         };
         compact_task.watermark = watermark;
-        compact_task.existing_table_ids = current_version
+        compact_task.existing_tables = current_version
             .levels
             .get(&compaction_group_id)
             .unwrap()
-            .member_table_ids
+            .member_tables
             .clone();
 
         if CompactStatus::is_trivial_move_task(&compact_task) && can_trivial_move {
@@ -848,7 +851,11 @@ where
             compact_task.table_options = table_id_to_option
                 .into_iter()
                 .filter_map(|(table_id, table_option)| {
-                    if compact_task.existing_table_ids.contains(&table_id) {
+                    if compact_task
+                        .existing_tables
+                        .iter()
+                        .any(|state_table_info| state_table_info.table_id == table_id)
+                    {
                         return Some((table_id, TableOption::from(&table_option)));
                     }
 
@@ -1146,7 +1153,16 @@ where
                 let is_expired = current_version
                     .levels
                     .get(&compact_task.compaction_group_id)
-                    .map(|group| group.member_table_ids != compact_task.existing_table_ids)
+                    .map(|group| {
+                        group
+                            .member_tables
+                            .iter()
+                            .map(|state_table_info| state_table_info.table_id)
+                            .ne(compact_task
+                                .existing_tables
+                                .iter()
+                                .map(|state_table_info| state_table_info.table_id))
+                    })
                     .unwrap_or(true)
                     || Self::is_compact_task_expired(compact_task, &versioning.branched_ssts);
                 if is_expired {
@@ -1355,10 +1371,12 @@ where
             } = local_sst_info;
             let mut is_sst_belong_to_group_declared =
                 match old_version.levels.get(compaction_group_id) {
-                    Some(compaction_group) => sst
-                        .table_ids
-                        .iter()
-                        .all(|t| compaction_group.member_table_ids.contains(t)),
+                    Some(compaction_group) => sst.table_ids.iter().all(|t| {
+                        compaction_group
+                            .member_tables
+                            .iter()
+                            .any(|state_table_info| &state_table_info.table_id == t)
+                    }),
                     None => false,
                 };
             if !is_sst_belong_to_group_declared {

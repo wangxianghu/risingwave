@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -20,6 +20,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use minstant::Instant;
 use risingwave_common::constants::hummock::CompactionFilterFlag;
+use risingwave_hummock_sdk::compaction_group::StateTableId;
 use risingwave_hummock_sdk::filter_key_extractor::FilterKeyExtractorImpl;
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::key_range::KeyRange;
@@ -122,7 +123,7 @@ pub struct TaskConfig {
     /// `stats_target_table_ids` decides whether a dropped key should be counted as table stats
     /// change. For an divided SST as input, a dropped key shouldn't be counted if its table id
     /// doesn't belong to this divided SST. See `Compactor::compact_and_build_sst`.
-    pub stats_target_table_ids: Option<HashSet<u32>>,
+    pub stats_target_table_ids: Option<BTreeMap<StateTableId, u32>>,
     pub task_type: compact_task::TaskType,
     pub split_by_table: bool,
 }
@@ -153,9 +154,13 @@ pub fn build_multi_compaction_filter(compact_task: &CompactTask) -> MultiCompact
     let compaction_filter_flag =
         CompactionFilterFlag::from_bits(compact_task.compaction_filter_mask).unwrap_or_default();
     if compaction_filter_flag.contains(CompactionFilterFlag::STATE_CLEAN) {
-        let state_clean_up_filter = Box::new(StateCleanUpCompactionFilter::new(
-            HashSet::from_iter(compact_task.existing_table_ids.clone()),
-        ));
+        let state_clean_up_filter =
+            Box::new(StateCleanUpCompactionFilter::new(HashSet::from_iter(
+                compact_task
+                    .existing_tables
+                    .iter()
+                    .map(|state_table_info| state_table_info.get_table_id()),
+            )));
 
         multi_filter.register(state_clean_up_filter);
     }

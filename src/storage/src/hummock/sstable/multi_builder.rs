@@ -12,10 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::btree_map::Iter;
+use std::iter::Peekable;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 
+use num_integer::Integer;
+use risingwave_common::hash::VirtualNode;
+use risingwave_hummock_sdk::compaction_group::StateTableId;
 use risingwave_hummock_sdk::key::{FullKey, UserKey};
 use risingwave_hummock_sdk::key_range::KeyRange;
 use risingwave_hummock_sdk::LocalSstableInfo;
@@ -50,7 +55,7 @@ pub struct SplitTableOutput {
 /// based on their target capacity set in options.
 ///
 /// When building is finished, one may call `finish` to get the results of zero, one or more tables.
-pub struct CapacitySplitTableBuilder<F>
+pub struct CapacitySplitTableBuilder<'a, F>
 where
     F: TableBuilderFactory,
 {
@@ -71,10 +76,13 @@ where
     pub del_agg: Arc<RangeTombstonesCollector>,
     key_range: KeyRange,
     last_table_id: u32,
+    /// When vnode of the coming key is greater than vnode_split_point, we will switch SST.
+    vnode_split_point: usize,
+    table_weights: Peekable<Iter<'a, StateTableId, u32>>,
     split_by_table: bool,
 }
 
-impl<F> CapacitySplitTableBuilder<F>
+impl<'a, F> CapacitySplitTableBuilder<'a, F>
 where
     F: TableBuilderFactory,
 {
@@ -85,6 +93,7 @@ where
         task_progress: Option<Arc<TaskProgress>>,
         del_agg: Arc<RangeTombstonesCollector>,
         key_range: KeyRange,
+        table_weights: Iter<'a, StateTableId, u32>,
         split_by_table: bool,
     ) -> Self {
         let start_key = if key_range.left.is_empty() {
@@ -103,11 +112,13 @@ where
             last_sealed_key: start_key,
             key_range,
             last_table_id: 0,
+            vnode_split_point: VirtualNode::MAX.to_index(),
+            table_weights: table_weights.peekable(),
             split_by_table,
         }
     }
 
-    pub fn for_test(builder_factory: F) -> Self {
+    pub fn for_test(builder_factory: F, table_weights: Iter<'a, StateTableId, u32>) -> Self {
         Self {
             builder_factory,
             sst_outputs: Vec::new(),
@@ -118,6 +129,8 @@ where
             del_agg: Arc::new(RangeTombstonesCollector::for_test()),
             key_range: KeyRange::inf(),
             last_table_id: 0,
+            vnode_split_point: VirtualNode::MAX.to_index(),
+            table_weights: table_weights.peekable(),
             split_by_table: false,
         }
     }
@@ -146,10 +159,42 @@ where
         is_new_user_key: bool,
     ) -> HummockResult<()> {
         let mut switch_builder = false;
-        if self.split_by_table && full_key.user_key.table_id.table_id != self.last_table_id {
-            self.last_table_id = full_key.user_key.table_id.table_id;
-            switch_builder = true;
+        let key_table_id = full_key.user_key.table_id.table_id();
+        if key_table_id != self.last_table_id {
+            if self.split_by_table {
+                switch_builder = true;
+            }
+            while let Some((table_id, table_weight)) = self.table_weights.peek() && table_id < &&key_table_id {
+                if table_weight > &&0 {
+                    switch_builder = true;
+                }
+                self.table_weights.next();
+            }
+
+            if let Some((table_id, table_weight)) = self.table_weights.peek() && table_id == &&key_table_id && **table_weight > 1 {
+                self.vnode_split_point = VirtualNode::COUNT / (**table_weight as usize) - 1;
+            } else {
+                self.vnode_split_point = VirtualNode::MAX.to_index();
+            }
         }
+        if self.vnode_split_point != VirtualNode::MAX.to_index() {
+            let key_vnode = full_key.user_key.get_vnode_id();
+            if key_vnode > self.vnode_split_point {
+                switch_builder = true;
+
+                let table_weight = *self.table_weights.peek().unwrap().1 as usize;
+                let (basic, remainder) = VirtualNode::COUNT.div_rem(&table_weight);
+                let small_segments_area = basic * (table_weight - remainder);
+                self.vnode_split_point = (if key_vnode < small_segments_area {
+                    (key_vnode / basic + 1) * basic
+                } else {
+                    ((key_vnode - small_segments_area) / (basic + 1) + 1) * (basic + 1)
+                        + small_segments_area
+                }) - 1;
+                debug_assert!(key_vnode <= self.vnode_split_point);
+            }
+        }
+        self.last_table_id = key_table_id;
         if let Some(builder) = self.current_builder.as_ref() {
             if is_new_user_key && (switch_builder || builder.reach_capacity()) {
                 let delete_ranges = self
@@ -296,6 +341,8 @@ impl TableBuilderFactory for LocalTableBuilderFactory {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use risingwave_common::catalog::TableId;
 
     use super::*;
@@ -318,7 +365,8 @@ mod tests {
             compression_algorithm: CompressionAlgorithm::None,
         };
         let builder_factory = LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts);
-        let builder = CapacitySplitTableBuilder::for_test(builder_factory);
+        let empty_btree_map = BTreeMap::new();
+        let builder = CapacitySplitTableBuilder::for_test(builder_factory, empty_btree_map.iter());
         let results = builder.finish().await.unwrap();
         assert!(results.is_empty());
     }
@@ -335,7 +383,9 @@ mod tests {
             compression_algorithm: CompressionAlgorithm::None,
         };
         let builder_factory = LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts);
-        let mut builder = CapacitySplitTableBuilder::for_test(builder_factory);
+        let empty_btree_map = BTreeMap::new();
+        let mut builder =
+            CapacitySplitTableBuilder::for_test(builder_factory, empty_btree_map.iter());
 
         for i in 0..table_capacity {
             builder
@@ -358,11 +408,11 @@ mod tests {
     #[tokio::test]
     async fn test_table_seal() {
         let opts = default_builder_opt_for_test();
-        let mut builder = CapacitySplitTableBuilder::for_test(LocalTableBuilderFactory::new(
-            1001,
-            mock_sstable_store(),
-            opts,
-        ));
+        let empty_btree_map = BTreeMap::new();
+        let mut builder = CapacitySplitTableBuilder::for_test(
+            LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts),
+            empty_btree_map.iter(),
+        );
         let mut epoch = 100;
 
         macro_rules! add {
@@ -402,11 +452,11 @@ mod tests {
     #[tokio::test]
     async fn test_initial_not_allowed_split() {
         let opts = default_builder_opt_for_test();
-        let mut builder = CapacitySplitTableBuilder::for_test(LocalTableBuilderFactory::new(
-            1001,
-            mock_sstable_store(),
-            opts,
-        ));
+        let empty_btree_map = BTreeMap::new();
+        let mut builder = CapacitySplitTableBuilder::for_test(
+            LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts),
+            empty_btree_map.iter(),
+        );
         builder
             .add_full_key(test_key_of(0).to_ref(), HummockValue::put(b"v"), false)
             .await
@@ -422,12 +472,14 @@ mod tests {
             DeleteRangeTombstone::new(table_id, b"k".to_vec(), b"kkk".to_vec(), 100),
             DeleteRangeTombstone::new(table_id, b"aaa".to_vec(), b"ddd".to_vec(), 200),
         ]);
+        let empty_btree_map = BTreeMap::new();
         let mut builder = CapacitySplitTableBuilder::new(
             LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts),
             Arc::new(CompactorMetrics::unused()),
             None,
             builder.build(0, false),
             KeyRange::inf(),
+            empty_btree_map.iter(),
             false,
         );
         builder
@@ -473,12 +525,14 @@ mod tests {
             DeleteRangeTombstone::new(table_id, b"k".to_vec(), b"kkk".to_vec(), 100),
             DeleteRangeTombstone::new(table_id, b"aaa".to_vec(), b"ddd".to_vec(), 200),
         ]);
+        let empty_btree_map = BTreeMap::new();
         let builder = CapacitySplitTableBuilder::new(
             LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts),
             Arc::new(CompactorMetrics::unused()),
             None,
             builder.build(0, false),
             KeyRange::inf(),
+            empty_btree_map.iter(),
             false,
         );
         let results = builder.finish().await.unwrap();

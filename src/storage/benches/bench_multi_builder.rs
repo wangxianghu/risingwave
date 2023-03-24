@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::ops::Range;
 use std::sync::atomic::AtomicU64;
@@ -97,7 +98,7 @@ fn test_user_key_of(idx: u64) -> UserKey<Vec<u8>> {
 }
 
 async fn build_tables<F: SstableWriterFactory>(
-    mut builder: CapacitySplitTableBuilder<LocalTableBuilderFactory<F>>,
+    mut builder: CapacitySplitTableBuilder<'_, LocalTableBuilderFactory<F>>,
 ) {
     for i in RANGE {
         builder
@@ -147,6 +148,7 @@ fn bench_builder(
     group
         .sample_size(SAMPLE_COUNT)
         .measurement_time(ESTIMATED_MEASUREMENT_TIME);
+    let empty_btree_map = BTreeMap::new();
     if enable_streaming_upload {
         group.bench_function(format!("bench_streaming_upload_{}mb", capacity_mb), |b| {
             b.to_async(&runtime).iter(|| {
@@ -156,6 +158,7 @@ fn bench_builder(
                         StreamingSstableWriterFactory::new(sstable_store.clone()),
                         get_builder_options(capacity_mb),
                     ),
+                    empty_btree_map.iter(),
                 ))
             })
         });
@@ -168,6 +171,7 @@ fn bench_builder(
                         BatchSstableWriterFactory::new(sstable_store.clone()),
                         get_builder_options(capacity_mb),
                     ),
+                    empty_btree_map.iter(),
                 ))
             })
         });
