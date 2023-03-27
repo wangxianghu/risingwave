@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::{Bound, RangeBounds};
@@ -22,10 +23,10 @@ use std::sync::Arc;
 use bytes::Bytes;
 use risingwave_common::cache::CachePriority;
 use risingwave_common::catalog::{TableId, TableOption};
-use risingwave_hummock_sdk::can_concat;
 use risingwave_hummock_sdk::key::{
     bound_table_key_range, EmptySliceRef, FullKey, TableKey, UserKey,
 };
+use risingwave_hummock_sdk::{can_concat, HummockSstableObjectId};
 use risingwave_pb::hummock::{HummockVersion, SstableInfo};
 use tokio::sync::Notify;
 
@@ -92,11 +93,21 @@ pub fn validate_table_key_range(version: &HummockVersion) {
     }
 }
 
-pub fn filter_single_sst<R, B>(info: &SstableInfo, table_id: TableId, table_key_range: &R) -> bool
+pub fn filter_single_sst<R, B>(
+    info: &SstableInfo,
+    table_id: TableId,
+    table_key_range: &R,
+    object_ids: Option<&BTreeSet<HummockSstableObjectId>>,
+) -> bool
 where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
+    if object_ids.map_or(false, |object_ids_map| {
+        !object_ids_map.contains(&info.object_id)
+    }) {
+        return false;
+    }
     let table_range = info.key_range.as_ref().unwrap();
     let table_start = FullKey::decode(table_range.left.as_slice()).user_key;
     let table_end = FullKey::decode(table_range.right.as_slice()).user_key;
@@ -126,13 +137,14 @@ pub fn prune_overlapping_ssts<'a, R, B>(
     ssts: &'a [SstableInfo],
     table_id: TableId,
     table_key_range: &'a R,
+    object_ids: Option<&'a BTreeSet<HummockSstableObjectId>>,
 ) -> impl DoubleEndedIterator<Item = &'a SstableInfo>
 where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
     ssts.iter()
-        .filter(move |info| filter_single_sst(info, table_id, table_key_range))
+        .filter(move |info| filter_single_sst(info, table_id, table_key_range, object_ids))
 }
 
 /// Prune non-overlapping SSTs that does not overlap with a specific key range or does not overlap

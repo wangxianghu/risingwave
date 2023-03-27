@@ -136,6 +136,10 @@ impl LocalStateStore for PanicStateStore {
     fn seal_current_epoch(&mut self, _next_epoch: u64) {
         panic!("should not operate on the panic state store!")
     }
+
+    fn on_vnode_stale(&mut self) {
+        // Do nothing.
+    }
 }
 
 impl StateStore for PanicStateStore {

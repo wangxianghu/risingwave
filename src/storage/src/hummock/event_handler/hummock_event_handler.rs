@@ -492,7 +492,7 @@ impl HummockEventHandler {
                         } => {
                             let pinned_version = self.pinned_version.load();
                             let basic_read_version = Arc::new(RwLock::new(
-                                HummockReadVersion::new((**pinned_version).clone()),
+                                HummockReadVersion::new(table_id, (**pinned_version).clone()),
                             ));
 
                             let instance_id = self.generate_instance_id();

@@ -333,6 +333,10 @@ impl LocalStateStore for LocalHummockStorage {
             prev_epoch
         );
     }
+
+    fn on_vnode_stale(&mut self) {
+        self.read_version.write().on_vnode_stale();
+    }
 }
 
 impl LocalHummockStorage {

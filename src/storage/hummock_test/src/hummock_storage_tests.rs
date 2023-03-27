@@ -1321,8 +1321,9 @@ async fn test_hummock_version_reader() {
         }
 
         {
-            let basic_read_version =
-                Arc::new(RwLock::new(hummock_storage.read_version().read().clone()));
+            let basic_read_version = Arc::new(RwLock::new(
+                hummock_storage.read_version().read().clone_for_test(),
+            ));
 
             let sync_result1 = test_env.storage.seal_and_sync_epoch(epoch1).await.unwrap();
             test_env
@@ -1339,8 +1340,9 @@ async fn test_hummock_version_reader() {
                 .await
                 .unwrap();
             test_env.storage.try_wait_epoch_for_test(epoch2).await;
-            let read_version_2 =
-                Arc::new(RwLock::new(hummock_storage.read_version().read().clone()));
+            let read_version_2 = Arc::new(RwLock::new(
+                hummock_storage.read_version().read().clone_for_test(),
+            ));
 
             let sync_result3 = test_env.storage.seal_and_sync_epoch(epoch3).await.unwrap();
             test_env
@@ -1349,8 +1351,9 @@ async fn test_hummock_version_reader() {
                 .await
                 .unwrap();
             test_env.storage.try_wait_epoch_for_test(epoch3).await;
-            let read_version_3 =
-                Arc::new(RwLock::new(hummock_storage.read_version().read().clone()));
+            let read_version_3 = Arc::new(RwLock::new(
+                hummock_storage.read_version().read().clone_for_test(),
+            ));
 
             {
                 let read_snapshot = read_filter_for_batch(

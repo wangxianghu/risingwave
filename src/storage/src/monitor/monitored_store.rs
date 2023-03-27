@@ -236,6 +236,10 @@ impl<S: LocalStateStore> LocalStateStore for MonitoredStateStore<S> {
         // TODO: may collect metrics
         self.inner.seal_current_epoch(next_epoch)
     }
+
+    fn on_vnode_stale(&mut self) {
+        self.inner.on_vnode_stale();
+    }
 }
 
 impl<S: StateStore> StateStore for MonitoredStateStore<S> {

@@ -475,6 +475,13 @@ pub mod verify {
             }
             ret
         }
+
+        fn on_vnode_stale(&mut self) {
+            if let Some(expected) = &mut self.expected {
+                expected.on_vnode_stale();
+            }
+            self.actual.on_vnode_stale();
+        }
     }
 
     impl<A: StateStore, E: StateStore> StateStore for VerifyStateStore<A, E> {
@@ -783,6 +790,8 @@ pub mod boxed_state_store {
         fn init(&mut self, epoch: u64);
 
         fn seal_current_epoch(&mut self, next_epoch: u64);
+
+        fn on_vnode_stale(&mut self);
     }
 
     #[async_trait::async_trait]
@@ -838,6 +847,10 @@ pub mod boxed_state_store {
 
         fn seal_current_epoch(&mut self, next_epoch: u64) {
             self.seal_current_epoch(next_epoch)
+        }
+
+        fn on_vnode_stale(&mut self) {
+            self.on_vnode_stale();
         }
     }
 
@@ -899,6 +912,10 @@ pub mod boxed_state_store {
 
         fn seal_current_epoch(&mut self, next_epoch: u64) {
             self.deref_mut().seal_current_epoch(next_epoch)
+        }
+
+        fn on_vnode_stale(&mut self) {
+            self.deref_mut().on_vnode_stale();
         }
     }
 

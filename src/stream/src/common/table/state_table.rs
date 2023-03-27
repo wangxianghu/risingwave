@@ -599,6 +599,7 @@ where
 
         if cache_may_stale {
             self.state_clean_watermark = None;
+            self.local_store.on_vnode_stale();
         }
 
         (

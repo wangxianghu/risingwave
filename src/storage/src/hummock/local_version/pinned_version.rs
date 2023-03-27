@@ -128,17 +128,31 @@ impl PinnedVersion {
     fn levels_by_compaction_groups_id(
         &self,
         compaction_group_id: CompactionGroupId,
+        only_return_l0: bool,
     ) -> Vec<&Level> {
         let mut ret = vec![];
         let levels = self.version.levels.get(&compaction_group_id).unwrap();
         ret.extend(levels.l0.as_ref().unwrap().sub_levels.iter().rev());
-        ret.extend(levels.levels.iter());
+        if !only_return_l0 {
+            ret.extend(levels.levels.iter());
+        }
         ret
     }
 
     pub fn levels(&self, table_id: TableId) -> Vec<&Level> {
         match self.compaction_group_index.get(&table_id) {
-            Some(compaction_group_id) => self.levels_by_compaction_groups_id(*compaction_group_id),
+            Some(compaction_group_id) => {
+                self.levels_by_compaction_groups_id(*compaction_group_id, false)
+            }
+            None => vec![],
+        }
+    }
+
+    pub fn l0_sublevels(&self, table_id: TableId) -> Vec<&Level> {
+        match self.compaction_group_index.get(&table_id) {
+            Some(compaction_group_id) => {
+                self.levels_by_compaction_groups_id(*compaction_group_id, true)
+            }
             None => vec![],
         }
     }

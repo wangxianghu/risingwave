@@ -492,4 +492,8 @@ impl<S: StateStoreWrite + StateStoreRead> LocalStateStore for MemtableLocalState
             prev_epoch
         );
     }
+
+    fn on_vnode_stale(&mut self) {
+        // Do nothing.
+    }
 }

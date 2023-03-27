@@ -311,6 +311,8 @@ pub trait LocalStateStore: StaticSendSync {
         key_range: IterKeyRange,
         read_options: ReadOptions,
     ) -> Self::MayExistFuture<'_>;
+
+    fn on_vnode_stale(&mut self);
 }
 
 /// If `exhaust_iter` is true, prefetch will be enabled. Prefetching may increase the memory
