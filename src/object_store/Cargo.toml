@@ -21,7 +21,7 @@ fail = "0.5"
 futures = { version = "0.3", default-features = false, features = ["alloc"] }
 hyper = "0.14"
 itertools = "0.10"
-opendal = "0.30"
+opendal = { version = "0.30", features = ["services-hdfs"] }
 prometheus = { version = "0.13", features = ["process"] }
 random-string = "1.0"
 risingwave_common = { path = "../common" }
@@ -43,5 +43,3 @@ tracing = "0.1"
 # [package.metadata.cargo-udeps.ignore]
 # normal = ["workspace-hack"]
 
-# [features]
-# hdfs-backend = ["opendal/services-hdfs"]
