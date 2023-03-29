@@ -252,10 +252,8 @@ impl PrunedVersion {
                     if sub_level.sub_level_id == *old_sub_level_id
                         && sub_level.level_type() != LevelType::Nonoverlapping
                     {
-                        let new_indices = self.construct_index(
-                            sub_level,
-                            old_object_ids.iter().map(|object_id| *object_id),
-                        );
+                        let new_indices =
+                            self.construct_index(sub_level, old_object_ids.iter().copied());
                         new_levels.push((*old_sub_level_id, new_indices));
 
                         sub_level_asc_iter.next();
@@ -470,56 +468,9 @@ impl HummockReadVersion {
             }
 
             VersionUpdate::CommittedSnapshot(committed_version) => {
-                let max_committed_epoch = committed_version.max_committed_epoch();
                 self.committed = committed_version;
 
-                let table_id = self.table_id;
-                let min_acceptable_staging_epoch = self
-                    .committed_index
-                    .as_deref()
-                    .map_or(HummockEpoch::MIN, |committed_index| {
-                        committed_index.min_acceptable_staging_epoch()
-                    });
-
-                let cleaned_ssts = {
-                    self.staging
-                        .imm
-                        .retain(|imm| imm.epoch() > max_committed_epoch);
-                    let mut cleaned_ssts = vec![];
-                    self.staging.sst.retain(|sst| {
-                        let newest_epoch = *sst.epochs.first().expect("epochs not empty");
-                        if newest_epoch > max_committed_epoch {
-                            true
-                        } else {
-                            if newest_epoch >= min_acceptable_staging_epoch {
-                                cleaned_ssts.push((
-                                    newest_epoch,
-                                    sst.sstable_infos()
-                                        .iter()
-                                        .filter(|local_sstable_info| {
-                                            local_sstable_info
-                                                .sst_info
-                                                .get_table_ids()
-                                                .binary_search(&table_id.table_id)
-                                                .is_ok()
-                                        })
-                                        .map(|local_sstable_info| {
-                                            local_sstable_info.sst_info.get_object_id()
-                                        })
-                                        .collect_vec(),
-                                ));
-                            }
-                            false
-                        }
-                    });
-
-                    // check epochs.last() > MCE
-                    assert!(self.staging.sst.iter().all(|sst| {
-                        sst.epochs.last().expect("epochs not empty") > &max_committed_epoch
-                    }));
-
-                    cleaned_ssts
-                };
+                let cleaned_ssts = self.clean_staging_ssts();
 
                 if let Some(committed_index) = self.committed_index.as_deref() {
                     self.committed_index = Some(Arc::new(
@@ -528,6 +479,56 @@ impl HummockReadVersion {
                 }
             }
         }
+    }
+
+    fn clean_staging_ssts(&mut self) -> Vec<(HummockEpoch, Vec<HummockSstableObjectId>)> {
+        let max_committed_epoch = self.committed().max_committed_epoch();
+
+        let table_id = self.table_id;
+        let min_acceptable_staging_epoch = self
+            .committed_index
+            .as_deref()
+            .map_or(HummockEpoch::MIN, |committed_index| {
+                committed_index.min_acceptable_staging_epoch()
+            });
+
+        self.staging
+            .imm
+            .retain(|imm| imm.epoch() > max_committed_epoch);
+        let mut cleaned_ssts = vec![];
+        self.staging.sst.retain(|sst| {
+            let newest_epoch = *sst.epochs.first().expect("epochs not empty");
+            if newest_epoch > max_committed_epoch {
+                true
+            } else {
+                if newest_epoch >= min_acceptable_staging_epoch {
+                    cleaned_ssts.push((
+                        newest_epoch,
+                        sst.sstable_infos()
+                            .iter()
+                            .filter(|local_sstable_info| {
+                                local_sstable_info
+                                    .sst_info
+                                    .get_table_ids()
+                                    .binary_search(&table_id.table_id)
+                                    .is_ok()
+                            })
+                            .map(|local_sstable_info| local_sstable_info.sst_info.get_object_id())
+                            .collect_vec(),
+                    ));
+                }
+                false
+            }
+        });
+
+        // check epochs.last() > MCE
+        assert!(self
+            .staging
+            .sst
+            .iter()
+            .all(|sst| { sst.epochs.last().expect("epochs not empty") > &max_committed_epoch }));
+
+        cleaned_ssts
     }
 
     pub fn rewind(&mut self) {
@@ -732,7 +733,7 @@ impl HummockVersionReader {
                                 if *index_sub_level_id != level.sub_level_id {
                                     continue;
                                 }
-                                &sst_indices
+                                sst_indices
                             }
                             None => {
                                 if level.sub_level_id >= committed_index.as_deref().unwrap().scope {
@@ -908,7 +909,7 @@ impl HummockVersionReader {
                             if *index_sub_level_id != level.sub_level_id {
                                 continue;
                             }
-                            &sst_indices
+                            sst_indices
                         }
                         None => {
                             if level.sub_level_id >= committed_index.as_deref().unwrap().scope {
@@ -1130,7 +1131,7 @@ impl HummockVersionReader {
                                     if *index_sub_level_id != level.sub_level_id {
                                         continue;
                                     }
-                                    &sst_indices
+                                    sst_indices
                                 }
                                 None => {
                                     if level.sub_level_id
@@ -1207,7 +1208,7 @@ impl HummockVersionReader {
                                 if *index_sub_level_id != level.sub_level_id {
                                     continue;
                                 }
-                                &sst_indices
+                                sst_indices
                             }
                             None => {
                                 if level.sub_level_id >= committed_index.as_deref().unwrap().scope {
