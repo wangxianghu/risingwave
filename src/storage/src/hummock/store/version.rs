@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 use std::collections::{HashSet, VecDeque};
 use std::iter::once;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -29,7 +28,7 @@ use risingwave_hummock_sdk::key::{
 };
 use risingwave_hummock_sdk::key_range::KeyRangeCommon;
 use risingwave_hummock_sdk::{HummockEpoch, HummockSstableObjectId, LocalSstableInfo};
-use risingwave_pb::hummock::{HummockVersionDelta, LevelType, SstableInfo};
+use risingwave_pb::hummock::{HummockVersionDelta, Level, LevelType, SstableInfo};
 use sync_point::sync_point;
 
 use super::memtable::{ImmId, ImmutableMemtable};
@@ -45,7 +44,7 @@ use crate::hummock::sstable_store::SstableStoreRef;
 use crate::hummock::store::state_store::HummockStorageIterator;
 use crate::hummock::utils::{
     check_subset_preserve_order, filter_single_sst, prune_nonoverlapping_ssts,
-    prune_overlapping_ssts, range_overlap, search_sst_idx,
+    prune_overlapping_ssts, prune_overlapping_ssts_rev, range_overlap, search_sst_idx,
 };
 use crate::hummock::{
     get_from_batch, get_from_sstable_info, hit_sstable_bloom_filter, DeleteRangeAggregator,
@@ -183,24 +182,167 @@ impl StagingVersion {
                     .sstable_infos
                     .iter()
                     .map(|sstable| &sstable.sst_info)
-                    .filter(move |sstable| {
-                        filter_single_sst(sstable, table_id, table_key_range, None)
-                    })
+                    .filter(move |sstable| filter_single_sst(sstable, table_id, table_key_range))
             });
         (overlapped_imms, overlapped_ssts)
     }
 }
 
+/// `(SST positions, SST object ids)`
+type PrunedVersionLevel = (Vec<usize>, Vec<HummockSstableObjectId>);
+struct PrunedVersion {
+    table_id: TableId,
+    /// `Vec<(sub_level_id, Vec<(SST position, SST object id)>)>`
+    overlapping_levels: Vec<(HummockEpoch, PrunedVersionLevel)>,
+}
+
+impl PrunedVersion {
+    fn new(table_id: TableId) -> Self {
+        Self {
+            table_id,
+            overlapping_levels: vec![],
+        }
+    }
+
+    fn max_sub_level_id(&self) -> Option<HummockEpoch> {
+        self.overlapping_levels
+            .last()
+            .map(|(sub_level_id, _)| *sub_level_id)
+    }
+
+    fn construct_index(
+        &self,
+        sub_level: &Level,
+        object_ids: impl Iterator<Item = HummockSstableObjectId>,
+    ) -> PrunedVersionLevel {
+        let mut hexff_indices = object_ids
+            .map(|object_id| (usize::MAX, object_id))
+            .collect_vec();
+        hexff_indices.sort_by_key(|(_usize_max, object_id)| *object_id);
+        for (index, table_info) in sub_level.get_table_infos().iter().enumerate() {
+            if let Ok(position) = hexff_indices.binary_search_by_key(&table_info.object_id, |(_, object_id)| *object_id) && table_info.get_table_ids().binary_search(&self.table_id.table_id).is_ok() {
+                hexff_indices[position].0 = index;
+            }
+        }
+        hexff_indices.retain(|(index, _)| *index != usize::MAX);
+        hexff_indices.sort();
+        hexff_indices.into_iter().unzip()
+    }
+
+    fn overlapping_level_indices(&self) -> &[(HummockEpoch, PrunedVersionLevel)] {
+        &self.overlapping_levels
+    }
+
+    fn apply(
+        &self,
+        committed_version: &CommittedVersion,
+        mut cleaned_staging_ssts: Vec<(HummockEpoch, Vec<HummockSstableObjectId>)>,
+    ) -> Self {
+        cleaned_staging_ssts.sort_by_key(|(epoch, _)| *epoch);
+
+        let committed_l0_sub_levels = committed_version.l0_sublevels(self.table_id);
+        let mut sub_level_asc_iter = committed_l0_sub_levels.iter().rev().peekable();
+        let mut new_levels = Vec::with_capacity(self.overlapping_levels.len() + 1);
+        for (old_sub_level_id, (_, old_object_ids)) in &self.overlapping_levels {
+            while let Some(sub_level) = sub_level_asc_iter.peek() && sub_level.sub_level_id < *old_sub_level_id {
+                sub_level_asc_iter.next();
+            }
+            match sub_level_asc_iter.peek() {
+                Some(sub_level) => {
+                    if sub_level.sub_level_id == *old_sub_level_id
+                        && sub_level.level_type() != LevelType::Nonoverlapping
+                    {
+                        let new_indices = self.construct_index(
+                            sub_level,
+                            old_object_ids.iter().map(|object_id| *object_id),
+                        );
+                        new_levels.push((*old_sub_level_id, new_indices));
+
+                        sub_level_asc_iter.next();
+                    }
+                }
+                None => break,
+            }
+        }
+
+        let mut levels_to_extend = vec![];
+        for (idx, sub_level) in committed_l0_sub_levels.iter().enumerate() {
+            while let Some((epoch, _)) = cleaned_staging_ssts.last() && epoch > &sub_level.sub_level_id {
+                cleaned_staging_ssts.pop();
+            }
+            if cleaned_staging_ssts.is_empty() {
+                break;
+            }
+
+            let next_epoch = committed_l0_sub_levels
+                .get(idx + 1)
+                .map(|sub_level| sub_level.get_sub_level_id());
+            let left_len = if let Some(next_epoch) = next_epoch {
+                let mut left_len = cleaned_staging_ssts.len();
+                while left_len > 0 && cleaned_staging_ssts[left_len - 1].0 > next_epoch {
+                    left_len -= 1;
+                }
+                left_len
+            } else {
+                0
+            };
+            let candidate_ssts = cleaned_staging_ssts.split_off(left_len);
+
+            if sub_level.level_type() != LevelType::Nonoverlapping {
+                let committed_indices = self.construct_index(
+                    sub_level,
+                    candidate_ssts
+                        .into_iter()
+                        .flat_map(|(_, object_ids)| object_ids),
+                );
+                levels_to_extend.push((sub_level.get_sub_level_id(), committed_indices));
+            }
+        }
+
+        new_levels.extend(levels_to_extend.into_iter().rev());
+
+        Self {
+            table_id: self.table_id,
+            overlapping_levels: new_levels,
+        }
+    }
+}
+
 pub struct CommittedVersionIndex {
     scope: HummockEpoch,
-    object_ids: Vec<(HummockEpoch, Arc<[HummockSstableObjectId]>)>,
+    pruned_version: PrunedVersion,
 }
 
 impl CommittedVersionIndex {
-    fn new(max_committed_epoch: HummockEpoch) -> Self {
+    fn new(table_id: TableId, max_committed_epoch: HummockEpoch) -> Self {
         Self {
             scope: max_committed_epoch + 1,
-            object_ids: Vec::default(),
+            pruned_version: PrunedVersion::new(table_id),
+        }
+    }
+
+    fn min_acceptable_staging_epoch(&self) -> HummockEpoch {
+        if let Some(max_sub_level_id) = self.pruned_version.max_sub_level_id() {
+            max(self.scope, max_sub_level_id + 1)
+        } else {
+            self.scope
+        }
+    }
+
+    fn overlapping_level_indices(&self) -> &[(HummockEpoch, PrunedVersionLevel)] {
+        self.pruned_version.overlapping_level_indices()
+    }
+
+    fn apply(
+        &self,
+        committed_version: &CommittedVersion,
+        cleaned_staging_ssts: Vec<(HummockEpoch, Vec<HummockSstableObjectId>)>,
+    ) -> Self {
+        Self {
+            scope: self.scope,
+            pruned_version: self
+                .pruned_version
+                .apply(committed_version, cleaned_staging_ssts),
         }
     }
 }
@@ -332,15 +474,14 @@ impl HummockReadVersion {
                 self.committed = committed_version;
 
                 let table_id = self.table_id;
-                let min_scoped_epoch = self.committed_index.as_deref().map_or(HummockEpoch::MIN, |committed_index| {
-                    let mut min_scoped_epoch = committed_index.scope;
-                    if let Some((epoch, _)) = committed_index.object_ids.last() && epoch + 1 > min_scoped_epoch {
-                        min_scoped_epoch = epoch + 1;
-                    }
-                    min_scoped_epoch
-                });
+                let min_acceptable_staging_epoch = self
+                    .committed_index
+                    .as_deref()
+                    .map_or(HummockEpoch::MIN, |committed_index| {
+                        committed_index.min_acceptable_staging_epoch()
+                    });
 
-                let mut cleaned_ssts = {
+                let cleaned_ssts = {
                     self.staging
                         .imm
                         .retain(|imm| imm.epoch() > max_committed_epoch);
@@ -350,7 +491,7 @@ impl HummockReadVersion {
                         if newest_epoch > max_committed_epoch {
                             true
                         } else {
-                            if newest_epoch >= min_scoped_epoch {
+                            if newest_epoch >= min_acceptable_staging_epoch {
                                 cleaned_ssts.push((
                                     newest_epoch,
                                     sst.sstable_infos()
@@ -379,76 +520,12 @@ impl HummockReadVersion {
 
                     cleaned_ssts
                 };
-                let committed_index = if let Some(committed_index) = self.committed_index.as_deref()
-                {
-                    committed_index
-                } else {
-                    return;
-                };
-                cleaned_ssts.sort_by_key(|(epoch, _)| *epoch);
 
-                let sub_levels = self.committed.l0_sublevels(table_id);
-                let mut sub_level_asc_iter = sub_levels.iter().rev().peekable();
-                let mut new_indices = vec![];
-                for old_index in &committed_index.object_ids {
-                    while let Some(sub_level) = sub_level_asc_iter.peek() && sub_level.sub_level_id < old_index.0 {
-                        sub_level_asc_iter.next();
-                    }
-                    match sub_level_asc_iter.peek() {
-                        Some(sub_level) => {
-                            if sub_level.sub_level_id == old_index.0
-                                && sub_level.level_type() != LevelType::Nonoverlapping
-                            {
-                                sub_level_asc_iter.next();
-                                new_indices.push(old_index.clone());
-                            }
-                        }
-                        None => break,
-                    }
+                if let Some(committed_index) = self.committed_index.as_deref() {
+                    self.committed_index = Some(Arc::new(
+                        committed_index.apply(self.committed(), cleaned_ssts),
+                    ));
                 }
-
-                let mut committed_indices = vec![];
-                for (index, sub_level) in sub_levels.iter().enumerate() {
-                    while let Some((epoch, _)) = cleaned_ssts.last() && epoch > &sub_level.sub_level_id {
-                        cleaned_ssts.pop();
-                    }
-                    if cleaned_ssts.is_empty() {
-                        break;
-                    }
-
-                    let next_epoch = sub_levels
-                        .get(index + 1)
-                        .map(|sub_level| sub_level.get_sub_level_id());
-                    let left_len = if let Some(next_epoch) = next_epoch {
-                        let mut left_len = cleaned_ssts.len();
-                        while left_len > 0 && cleaned_ssts[left_len - 1].0 > next_epoch {
-                            left_len -= 1;
-                        }
-                        left_len
-                    } else {
-                        0
-                    };
-                    let indexed_ssts = cleaned_ssts.split_off(left_len);
-
-                    if sub_level.level_type() != LevelType::Nonoverlapping {
-                        committed_indices.push((sub_level.get_sub_level_id(), indexed_ssts));
-                    }
-                }
-                new_indices.extend(committed_indices.into_iter().rev().map(|(epoch, ssts)| {
-                    (
-                        epoch,
-                        ssts.into_iter()
-                            .flat_map(|(_, object_ids)| object_ids)
-                            .sorted()
-                            .collect_vec()
-                            .into(),
-                    )
-                }));
-
-                self.committed_index = Some(Arc::new(CommittedVersionIndex {
-                    scope: committed_index.scope,
-                    object_ids: new_indices,
-                }));
             }
         }
     }
@@ -458,7 +535,10 @@ impl HummockReadVersion {
             None
         } else {
             let max_committed_epoch = self.committed().max_committed_epoch();
-            Some(Arc::new(CommittedVersionIndex::new(max_committed_epoch)))
+            Some(Arc::new(CommittedVersionIndex::new(
+                self.table_id,
+                max_committed_epoch,
+            )))
         };
     }
 
@@ -633,7 +713,7 @@ impl HummockVersionReader {
         assert!(committed_version.is_valid());
         let mut peekable_index_iter = committed_index
             .as_deref()
-            .map(|index| index.object_ids.iter().rev().peekable());
+            .map(|index| index.overlapping_level_indices().iter().rev().peekable());
         for level in committed_version.levels(read_options.table_id) {
             if level.table_infos.is_empty() {
                 continue;
@@ -642,35 +722,36 @@ impl HummockVersionReader {
             match level.level_type() {
                 LevelType::Overlapping | LevelType::Unspecified => {
                     // TODO: Use an elegant way to avoid duplicate code.
-                    let object_ids = if let Some(index_iter) = peekable_index_iter.as_mut() {
-                        while let Some((sub_level_id, _)) = index_iter.peek() && *sub_level_id > level.sub_level_id {
+                    let full_idx = (0..level.get_table_infos().len()).collect_vec();
+                    let sst_indices = if let Some(index_iter) = peekable_index_iter.as_mut() {
+                        while let Some((index_sub_level_id, _)) = index_iter.peek() && *index_sub_level_id > level.sub_level_id {
                             index_iter.next();
                         }
                         match index_iter.peek() {
-                            Some((sub_level_id, object_ids)) => {
-                                if *sub_level_id != level.sub_level_id || object_ids.is_empty() {
+                            Some((index_sub_level_id, (sst_indices, _))) => {
+                                if *index_sub_level_id != level.sub_level_id {
                                     continue;
                                 }
-                                Some(object_ids.deref())
+                                &sst_indices
                             }
                             None => {
                                 if level.sub_level_id >= committed_index.as_deref().unwrap().scope {
                                     continue;
                                 }
                                 peekable_index_iter = None;
-                                None
+                                &full_idx
                             }
                         }
                     } else {
-                        None
+                        &full_idx
                     };
 
                     let single_table_key_range = table_key.clone()..=table_key.clone();
                     let sstable_infos = prune_overlapping_ssts(
                         &level.table_infos,
+                        sst_indices,
                         read_options.table_id,
                         &single_table_key_range,
-                        object_ids,
                     );
                     for sstable_info in sstable_infos {
                         stats_guard.local_stats.sub_iter_count += 1;
@@ -797,7 +878,7 @@ impl HummockVersionReader {
         let mut fetch_meta_reqs = vec![];
         let mut peekable_index_iter = committed_index
             .as_deref()
-            .map(|index| index.object_ids.iter().rev().peekable());
+            .map(|index| index.overlapping_level_indices().iter().rev().peekable());
         for level in committed.levels(read_options.table_id) {
             if level.table_infos.is_empty() {
                 continue;
@@ -817,36 +898,37 @@ impl HummockVersionReader {
                 fetch_meta_reqs.push((level.level_type, fetch_meta_req));
             } else {
                 // TODO: Use an elegant way to avoid duplicate code.
-                let object_ids = if let Some(index_iter) = peekable_index_iter.as_mut() {
-                    while let Some((sub_level_id, _)) = index_iter.peek() && *sub_level_id > level.sub_level_id {
+                let full_idx = (0..level.get_table_infos().len()).collect_vec();
+                let sst_indices = if let Some(index_iter) = peekable_index_iter.as_mut() {
+                    while let Some((index_sub_level_id, _)) = index_iter.peek() && *index_sub_level_id > level.sub_level_id {
                         index_iter.next();
                     }
                     match index_iter.peek() {
-                        Some((sub_level_id, object_ids)) => {
-                            if *sub_level_id != level.sub_level_id || object_ids.is_empty() {
+                        Some((index_sub_level_id, (sst_indices, _))) => {
+                            if *index_sub_level_id != level.sub_level_id {
                                 continue;
                             }
-                            Some(object_ids.deref())
+                            &sst_indices
                         }
                         None => {
                             if level.sub_level_id >= committed_index.as_deref().unwrap().scope {
                                 continue;
                             }
                             peekable_index_iter = None;
-                            None
+                            &full_idx
                         }
                     }
                 } else {
-                    None
+                    &full_idx
                 };
-                let table_infos = prune_overlapping_ssts(
+
+                // Overlapping
+                let fetch_meta_req = prune_overlapping_ssts_rev(
                     &level.table_infos,
+                    sst_indices,
                     read_options.table_id,
                     &table_key_range,
-                    object_ids,
                 );
-                // Overlapping
-                let fetch_meta_req = table_infos.rev().collect_vec();
                 if !fetch_meta_req.is_empty() {
                     fetch_meta_reqs.push((level.level_type, fetch_meta_req));
                 }
@@ -1023,7 +1105,7 @@ impl HummockVersionReader {
         );
         let mut peekable_index_iter = committed_index
             .as_deref()
-            .map(|index| index.object_ids.iter().rev().peekable());
+            .map(|index| index.overlapping_level_indices().iter().rev().peekable());
         let bloom_filter_prefix_hash = if let Some(prefix_hint) = read_options.prefix_hint {
             Sstable::hash_for_bloom_filter(&prefix_hint, table_id.table_id)
         } else {
@@ -1038,17 +1120,17 @@ impl HummockVersionReader {
                 match level.level_type() {
                     LevelType::Overlapping | LevelType::Unspecified => {
                         // TODO: Use an elegant way to avoid duplicate code.
-                        let object_ids = if let Some(index_iter) = peekable_index_iter.as_mut() {
-                            while let Some((sub_level_id, _)) = index_iter.peek() && *sub_level_id > level.sub_level_id {
+                        let full_idx = (0..level.get_table_infos().len()).collect_vec();
+                        let sst_indices = if let Some(index_iter) = peekable_index_iter.as_mut() {
+                            while let Some((index_sub_level_id, _)) = index_iter.peek() && *index_sub_level_id > level.sub_level_id {
                                 index_iter.next();
                             }
                             match index_iter.peek() {
-                                Some((sub_level_id, object_ids)) => {
-                                    if *sub_level_id != level.sub_level_id || object_ids.is_empty()
-                                    {
+                                Some((index_sub_level_id, (sst_indices, _))) => {
+                                    if *index_sub_level_id != level.sub_level_id {
                                         continue;
                                     }
-                                    Some(object_ids.deref())
+                                    &sst_indices
                                 }
                                 None => {
                                     if level.sub_level_id
@@ -1057,17 +1139,18 @@ impl HummockVersionReader {
                                         continue;
                                     }
                                     peekable_index_iter = None;
-                                    None
+                                    &full_idx
                                 }
                             }
                         } else {
-                            None
+                            &full_idx
                         };
+
                         if prune_overlapping_ssts(
                             &level.table_infos,
+                            sst_indices,
                             table_id,
                             &table_key_range,
-                            object_ids,
                         )
                         .next()
                         .is_some()
@@ -1114,33 +1197,35 @@ impl HummockVersionReader {
             match level.level_type() {
                 LevelType::Overlapping | LevelType::Unspecified => {
                     // TODO: Use an elegant way to avoid duplicate code.
-                    let object_ids = if let Some(index_iter) = peekable_index_iter.as_mut() {
-                        while let Some((sub_level_id, _)) = index_iter.peek() && *sub_level_id > level.sub_level_id {
+                    let full_idx = (0..level.get_table_infos().len()).collect_vec();
+                    let sst_indices = if let Some(index_iter) = peekable_index_iter.as_mut() {
+                        while let Some((index_sub_level_id, _)) = index_iter.peek() && *index_sub_level_id > level.sub_level_id {
                             index_iter.next();
                         }
                         match index_iter.peek() {
-                            Some((sub_level_id, object_ids)) => {
-                                if *sub_level_id != level.sub_level_id || object_ids.is_empty() {
+                            Some((index_sub_level_id, (sst_indices, _))) => {
+                                if *index_sub_level_id != level.sub_level_id {
                                     continue;
                                 }
-                                Some(object_ids.deref())
+                                &sst_indices
                             }
                             None => {
                                 if level.sub_level_id >= committed_index.as_deref().unwrap().scope {
                                     continue;
                                 }
                                 peekable_index_iter = None;
-                                None
+                                &full_idx
                             }
                         }
                     } else {
-                        None
+                        &full_idx
                     };
+
                     let sstable_infos = prune_overlapping_ssts(
                         &level.table_infos,
+                        sst_indices,
                         table_id,
                         &table_key_range,
-                        object_ids,
                     );
                     for sstable_info in sstable_infos {
                         stats_guard.local_stats.may_exist_check_sstable_count += 1;

@@ -20,12 +20,13 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
 
 use bytes::Bytes;
+use itertools::Itertools;
 use risingwave_common::cache::CachePriority;
 use risingwave_common::catalog::{TableId, TableOption};
+use risingwave_hummock_sdk::can_concat;
 use risingwave_hummock_sdk::key::{
     bound_table_key_range, EmptySliceRef, FullKey, TableKey, UserKey,
 };
-use risingwave_hummock_sdk::{can_concat, HummockSstableObjectId};
 use risingwave_pb::hummock::{HummockVersion, SstableInfo};
 use tokio::sync::Notify;
 
@@ -92,19 +93,11 @@ pub fn validate_table_key_range(version: &HummockVersion) {
     }
 }
 
-pub fn filter_single_sst<R, B>(
-    info: &SstableInfo,
-    table_id: TableId,
-    table_key_range: &R,
-    object_ids: Option<&[HummockSstableObjectId]>,
-) -> bool
+pub fn filter_single_sst<R, B>(info: &SstableInfo, table_id: TableId, table_key_range: &R) -> bool
 where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
-    if let Some(object_ids) = object_ids && object_ids.binary_search(&info.object_id).is_err() {
-        return false;
-    }
     let table_range = info.key_range.as_ref().unwrap();
     let table_start = FullKey::decode(table_range.left.as_slice()).user_key;
     let table_end = FullKey::decode(table_range.right.as_slice()).user_key;
@@ -132,16 +125,53 @@ pub(crate) fn search_sst_idx(ssts: &[SstableInfo], key: UserKey<&[u8]>) -> usize
 /// a specific table id. Returns the sst ids after pruning.
 pub fn prune_overlapping_ssts<'a, R, B>(
     ssts: &'a [SstableInfo],
+    indices: &'a Vec<usize>,
     table_id: TableId,
     table_key_range: &'a R,
-    object_ids: Option<&'a [HummockSstableObjectId]>,
+) -> impl DoubleEndedIterator<Item = &'a SstableInfo>
+where
+    R: RangeBounds<TableKey<B>>,
+    B: AsRef<[u8]> + EmptySliceRef,
+{
+    indices
+        .iter()
+        .map(|index| &ssts[*index])
+        .filter(move |info| filter_single_sst(info, table_id, table_key_range))
+}
+
+/// Prune overlapping SSTs that does not overlap with a specific key range or does not overlap with
+/// a specific table id. Returns the sst ids after pruning.
+pub fn prune_overlapping_ssts_rev<'a, 'b, R, B>(
+    ssts: &'a [SstableInfo],
+    indices: &'b Vec<usize>,
+    table_id: TableId,
+    table_key_range: &'a R,
+) -> Vec<&'a SstableInfo>
+where
+    R: RangeBounds<TableKey<B>>,
+    B: AsRef<[u8]> + EmptySliceRef,
+{
+    indices
+        .iter()
+        .map(|index| &ssts[*index])
+        .filter(move |info| filter_single_sst(info, table_id, table_key_range))
+        .rev()
+        .collect_vec()
+}
+
+/// Prune overlapping SSTs that does not overlap with a specific key range or does not overlap with
+/// a specific table id. Returns the sst ids after pruning.
+pub fn prune_overlapping_ssts_no_index<'a, R, B>(
+    ssts: &'a [SstableInfo],
+    table_id: TableId,
+    table_key_range: &'a R,
 ) -> impl DoubleEndedIterator<Item = &'a SstableInfo>
 where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
     ssts.iter()
-        .filter(move |info| filter_single_sst(info, table_id, table_key_range, object_ids))
+        .filter(move |info| filter_single_sst(info, table_id, table_key_range))
 }
 
 /// Prune non-overlapping SSTs that does not overlap with a specific key range or does not overlap
