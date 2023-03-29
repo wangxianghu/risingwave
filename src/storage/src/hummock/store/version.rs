@@ -209,6 +209,8 @@ impl CommittedVersionIndex {
 pub struct HummockReadVersion {
     table_id: TableId,
 
+    is_singleton: bool,
+
     /// Local version for staging data.
     staging: StagingVersion,
 
@@ -224,9 +226,10 @@ impl HummockReadVersion {
         // from meta. want this initialization after version is initialized (now with
         // notification), so add a assert condition to guarantee correct initialization order
         assert!(committed_version.is_valid());
-        let max_committed_epoch = committed_version.max_committed_epoch();
         Self {
             table_id,
+
+            is_singleton,
 
             staging: StagingVersion {
                 imm: VecDeque::default(),
@@ -235,11 +238,7 @@ impl HummockReadVersion {
 
             committed: committed_version,
 
-            committed_index: if is_singleton {
-                None
-            } else {
-                Some(Arc::new(CommittedVersionIndex::new(max_committed_epoch)))
-            },
+            committed_index: None,
         }
     }
 
@@ -247,6 +246,7 @@ impl HummockReadVersion {
     pub fn clone_for_test(&self) -> Self {
         Self {
             table_id: self.table_id,
+            is_singleton: self.is_singleton,
             staging: self.staging().clone(),
             committed: self.committed().clone(),
             committed_index: None,
@@ -451,11 +451,17 @@ impl HummockReadVersion {
         }
     }
 
-    pub fn on_vnode_stale(&mut self) {
-        if self.committed_index.is_some() {
+    pub fn rewind(&mut self) {
+        self.committed_index = if self.is_singleton {
+            None
+        } else {
             let max_committed_epoch = self.committed().max_committed_epoch();
-            self.committed_index = Some(Arc::new(CommittedVersionIndex::new(max_committed_epoch)));
-        }
+            Some(Arc::new(CommittedVersionIndex::new(max_committed_epoch)))
+        };
+    }
+
+    pub fn on_vnode_stale(&mut self) {
+        self.rewind();
     }
 
     pub fn staging(&self) -> &StagingVersion {

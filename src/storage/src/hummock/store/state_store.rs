@@ -318,6 +318,7 @@ impl LocalStateStore for LocalHummockStorage {
             "local state store of table id {:?} is init for more than once",
             self.table_id
         );
+        self.read_version.write().rewind();
     }
 
     fn seal_current_epoch(&mut self, next_epoch: u64) {
