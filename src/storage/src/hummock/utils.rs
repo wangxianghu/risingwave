@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::{Bound, RangeBounds};
@@ -97,15 +96,13 @@ pub fn filter_single_sst<R, B>(
     info: &SstableInfo,
     table_id: TableId,
     table_key_range: &R,
-    object_ids: Option<&BTreeSet<HummockSstableObjectId>>,
+    object_ids: Option<&[HummockSstableObjectId]>,
 ) -> bool
 where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
-    if object_ids.map_or(false, |object_ids_map| {
-        !object_ids_map.contains(&info.object_id)
-    }) {
+    if let Some(object_ids) = object_ids && object_ids.binary_search(&info.object_id).is_err() {
         return false;
     }
     let table_range = info.key_range.as_ref().unwrap();
@@ -137,7 +134,7 @@ pub fn prune_overlapping_ssts<'a, R, B>(
     ssts: &'a [SstableInfo],
     table_id: TableId,
     table_key_range: &'a R,
-    object_ids: Option<&'a BTreeSet<HummockSstableObjectId>>,
+    object_ids: Option<&'a [HummockSstableObjectId]>,
 ) -> impl DoubleEndedIterator<Item = &'a SstableInfo>
 where
     R: RangeBounds<TableKey<B>>,

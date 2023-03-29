@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::iter::once;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -193,7 +193,7 @@ impl StagingVersion {
 
 pub struct CommittedVersionIndex {
     scope: HummockEpoch,
-    object_ids: Vec<(HummockEpoch, Arc<BTreeSet<HummockSstableObjectId>>)>,
+    object_ids: Vec<(HummockEpoch, Arc<[HummockSstableObjectId]>)>,
 }
 
 impl CommittedVersionIndex {
@@ -437,9 +437,11 @@ impl HummockReadVersion {
                 new_indices.extend(committed_indices.into_iter().rev().map(|(epoch, ssts)| {
                     (
                         epoch,
-                        Arc::new(BTreeSet::from_iter(
-                            ssts.into_iter().flat_map(|(_, object_ids)| object_ids),
-                        )),
+                        ssts.into_iter()
+                            .flat_map(|(_, object_ids)| object_ids)
+                            .sorted()
+                            .collect_vec()
+                            .into(),
                     )
                 }));
 
