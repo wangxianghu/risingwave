@@ -14,7 +14,7 @@
 
 use bytes::Bytes;
 use pgwire::types::Format;
-use risingwave_common::error::{Result, RwError};
+use risingwave_common::error::{ErrorCode, Result, RwError};
 use risingwave_common::types::ScalarImpl;
 
 use super::statement::RewriteExprsRecursive;
@@ -57,8 +57,11 @@ impl ExprRewriter for ParamRewriter {
         let scalar = {
             let res = match format {
                 Format::Text => {
-                    let value = self.params[parameter_index].clone();
-                    ScalarImpl::from_text(&value, &data_type)
+                    let bytes = self.params[parameter_index].clone();
+                    data_type.text_bytes_instance(&bytes).map_err(|err| {
+                        ErrorCode::InvalidInputSyntax(format!("Invalid bind parameter: {}", err))
+                            .into()
+                    })
                 }
                 Format::Binary => {
                     let value = self.params[parameter_index].clone();
