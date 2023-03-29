@@ -73,6 +73,7 @@ pub enum HummockEvent {
 
     RegisterReadVersion {
         table_id: TableId,
+        is_singleton: bool,
         new_read_version_sender:
             oneshot::Sender<(Arc<RwLock<HummockReadVersion>>, LocalInstanceGuard)>,
     },
@@ -112,8 +113,12 @@ impl HummockEvent {
             ),
             HummockEvent::RegisterReadVersion {
                 table_id,
+                is_singleton,
                 new_read_version_sender: _,
-            } => format!("RegisterReadVersion table_id {:?}", table_id,),
+            } => format!(
+                "RegisterReadVersion table_id {:?} is_singleton {:?}",
+                table_id, is_singleton,
+            ),
 
             HummockEvent::DestroyReadVersion {
                 table_id,

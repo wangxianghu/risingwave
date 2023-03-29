@@ -376,6 +376,7 @@ pub struct NewLocalOptions {
     /// 2. The old value passed from
     /// `update` and `delete` should match the original stored value.
     pub is_consistent_op: bool,
+    pub is_singleton: bool,
     pub table_option: TableOption,
 }
 
@@ -384,6 +385,7 @@ impl NewLocalOptions {
         Self {
             table_id,
             is_consistent_op: false,
+            is_singleton: false,
             table_option: TableOption {
                 retention_seconds: None,
             },

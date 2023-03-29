@@ -238,6 +238,7 @@ impl HummockStorage {
         self.hummock_event_sender
             .send(HummockEvent::RegisterReadVersion {
                 table_id: option.table_id,
+                is_singleton: option.is_singleton,
                 new_read_version_sender: tx,
             })
             .unwrap();

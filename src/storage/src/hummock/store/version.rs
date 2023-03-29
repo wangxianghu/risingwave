@@ -215,11 +215,11 @@ pub struct HummockReadVersion {
     /// Remote version for committed data.
     committed: CommittedVersion,
 
-    committed_index: Arc<CommittedVersionIndex>,
+    committed_index: Option<Arc<CommittedVersionIndex>>,
 }
 
 impl HummockReadVersion {
-    pub fn new(table_id: TableId, committed_version: CommittedVersion) -> Self {
+    pub fn new(table_id: TableId, is_singleton: bool, committed_version: CommittedVersion) -> Self {
         // before build `HummockReadVersion`, we need to get the a initial version which obtained
         // from meta. want this initialization after version is initialized (now with
         // notification), so add a assert condition to guarantee correct initialization order
@@ -235,18 +235,21 @@ impl HummockReadVersion {
 
             committed: committed_version,
 
-            committed_index: Arc::new(CommittedVersionIndex::new(max_committed_epoch)),
+            committed_index: if is_singleton {
+                None
+            } else {
+                Some(Arc::new(CommittedVersionIndex::new(max_committed_epoch)))
+            },
         }
     }
 
     #[cfg(any(test, feature = "test"))]
     pub fn clone_for_test(&self) -> Self {
-        let max_committed_epoch = self.committed().max_committed_epoch();
         Self {
             table_id: self.table_id,
             staging: self.staging().clone(),
             committed: self.committed().clone(),
-            committed_index: Arc::new(CommittedVersionIndex::new(max_committed_epoch)),
+            committed_index: None,
         }
     }
 
@@ -329,10 +332,13 @@ impl HummockReadVersion {
                 self.committed = committed_version;
 
                 let table_id = self.table_id;
-                let mut min_scoped_epoch = self.committed_index.scope;
-                if let Some((epoch, _)) = self.committed_index.object_ids.last() && epoch + 1 > min_scoped_epoch {
-                    min_scoped_epoch = epoch + 1;
-                }
+                let min_scoped_epoch = self.committed_index.as_deref().map_or(HummockEpoch::MIN, |committed_index| {
+                    let mut min_scoped_epoch = committed_index.scope;
+                    if let Some((epoch, _)) = committed_index.object_ids.last() && epoch + 1 > min_scoped_epoch {
+                        min_scoped_epoch = epoch + 1;
+                    }
+                    min_scoped_epoch
+                });
 
                 let mut cleaned_ssts = {
                     self.staging
@@ -373,12 +379,18 @@ impl HummockReadVersion {
 
                     cleaned_ssts
                 };
+                let committed_index = if let Some(committed_index) = self.committed_index.as_deref()
+                {
+                    committed_index
+                } else {
+                    return;
+                };
                 cleaned_ssts.sort_by_key(|(epoch, _)| *epoch);
 
                 let sub_levels = self.committed.l0_sublevels(table_id);
                 let mut sub_level_asc_iter = sub_levels.iter().rev().peekable();
                 let mut new_indices = vec![];
-                for old_index in &self.committed_index.object_ids {
+                for old_index in &committed_index.object_ids {
                     while let Some(sub_level) = sub_level_asc_iter.peek() && sub_level.sub_level_id < old_index.0 {
                         sub_level_asc_iter.next();
                     }
@@ -431,17 +443,19 @@ impl HummockReadVersion {
                     )
                 }));
 
-                self.committed_index = Arc::new(CommittedVersionIndex {
-                    scope: self.committed_index.scope,
+                self.committed_index = Some(Arc::new(CommittedVersionIndex {
+                    scope: committed_index.scope,
                     object_ids: new_indices,
-                });
+                }));
             }
         }
     }
 
     pub fn on_vnode_stale(&mut self) {
-        let max_committed_epoch = self.committed().max_committed_epoch();
-        self.committed_index = Arc::new(CommittedVersionIndex::new(max_committed_epoch));
+        if self.committed_index.is_some() {
+            let max_committed_epoch = self.committed().max_committed_epoch();
+            self.committed_index = Some(Arc::new(CommittedVersionIndex::new(max_committed_epoch)));
+        }
     }
 
     pub fn staging(&self) -> &StagingVersion {
@@ -452,8 +466,8 @@ impl HummockReadVersion {
         &self.committed
     }
 
-    pub fn committed_index(&self) -> &Arc<CommittedVersionIndex> {
-        &self.committed_index
+    pub fn committed_index(&self) -> Option<&Arc<CommittedVersionIndex>> {
+        self.committed_index.as_ref()
     }
 
     pub fn clear_uncommitted(&mut self) {
@@ -524,7 +538,7 @@ pub fn read_filter_for_local(
         imm_iter.cloned().collect_vec(),
         sst_iter.cloned().collect_vec(),
         read_version_guard.committed().clone(),
-        Some(read_version_guard.committed_index().clone()),
+        read_version_guard.committed_index().cloned(),
     ))
 }
 

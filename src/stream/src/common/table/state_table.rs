@@ -188,13 +188,6 @@ where
         };
 
         let table_option = TableOption::build_table_option(table_catalog.get_properties());
-        let local_state_store = store
-            .new_local(NewLocalOptions {
-                table_id,
-                is_consistent_op,
-                table_option,
-            })
-            .await;
 
         let pk_data_types = pk_indices
             .iter()
@@ -211,6 +204,19 @@ where
             let vnode_col_idx = *idx as usize;
             pk_indices.iter().position(|&i| vnode_col_idx == i)
         });
+        let is_singleton = if vnode_col_idx_in_pk.is_some() {
+            false
+        } else {
+            dist_key_in_pk_indices.is_empty()
+        };
+        let local_state_store = store
+            .new_local(NewLocalOptions {
+                table_id,
+                is_consistent_op,
+                is_singleton,
+                table_option,
+            })
+            .await;
         let input_value_indices = table_catalog
             .value_indices
             .iter()
@@ -282,6 +288,7 @@ where
     }
 
     /// Create a state table without distribution, with given `value_indices`, used for unit tests.
+    #[cfg(any(test, feature = "test"))]
     pub async fn new_without_distribution_with_value_indices(
         store: S,
         table_id: TableId,
@@ -303,6 +310,7 @@ where
     }
 
     /// Create a state table without distribution, used for unit tests.
+    #[cfg(any(test, feature = "test"))]
     pub async fn new_without_distribution_inconsistent_op(
         store: S,
         table_id: TableId,
@@ -347,6 +355,7 @@ where
         .await
     }
 
+    #[cfg(any(test, feature = "test"))]
     pub async fn new_with_distribution_inconsistent_op(
         store: S,
         table_id: TableId,
@@ -383,10 +392,17 @@ where
         value_indices: Option<Vec<usize>>,
         is_consistent_op: bool,
     ) -> Self {
+        let vnode_col_idx_in_pk = None;
+        let is_singleton = if vnode_col_idx_in_pk.is_some() {
+            false
+        } else {
+            dist_key_in_pk_indices.is_empty()
+        };
         let local_state_store = store
             .new_local(NewLocalOptions {
                 table_id,
                 is_consistent_op,
+                is_singleton,
                 table_option: TableOption::default(),
             })
             .await;
@@ -425,7 +441,7 @@ where
             prefix_hint_len: 0,
             vnodes,
             table_option: Default::default(),
-            vnode_col_idx_in_pk: None,
+            vnode_col_idx_in_pk,
             value_indices,
             watermark_buffer_strategy: W::default(),
             state_clean_watermark: None,
