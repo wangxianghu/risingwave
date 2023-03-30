@@ -140,7 +140,7 @@ where
 }
 
 /// Prune overlapping SSTs that does not overlap with a specific key range or does not overlap with
-/// a specific table id. Returns the sst ids after pruning.
+/// a specific table id. Returns the sst ids after pruning with reverse order in a collection.
 pub fn prune_overlapping_ssts_rev<'a, R, B>(
     ssts: &'a [SstableInfo],
     indices: &[usize],
