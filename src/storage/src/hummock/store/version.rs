@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::{max, Ordering};
+use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::iter::once;
 use std::sync::Arc;
@@ -206,16 +206,8 @@ impl PrunedVersion {
         }
     }
 
-    fn max_sub_level_id(&self) -> Option<HummockEpoch> {
-        self.levels.first().map(|(sub_level_id, _)| *sub_level_id)
-    }
-
-    fn min_acceptable_staging_epoch(&self) -> HummockEpoch {
-        if let Some(max_sub_level_id) = self.max_sub_level_id() {
-            max(self.scope, max_sub_level_id + 1)
-        } else {
-            self.scope
-        }
+    fn scope(&self) -> HummockEpoch {
+        self.scope
     }
 
     fn get_indices(
@@ -464,9 +456,7 @@ impl HummockReadVersion {
             }
 
             VersionUpdate::CommittedSnapshot(committed_version) => {
-                self.committed = committed_version;
-
-                let cleaned_ssts = self.clean_staging_ssts();
+                let cleaned_ssts = self.clean_staging_ssts(committed_version);
 
                 if let Some(committed_index) = self.committed_index.as_deref() {
                     self.committed_index = Some(Arc::new(
@@ -477,24 +467,27 @@ impl HummockReadVersion {
         }
     }
 
-    fn clean_staging_ssts(&mut self) -> Vec<(HummockEpoch, Vec<HummockSstableObjectId>)> {
-        let max_committed_epoch = self.committed().max_committed_epoch();
+    fn clean_staging_ssts(
+        &mut self,
+        committed_version: PinnedVersion,
+    ) -> Vec<(HummockEpoch, Vec<HummockSstableObjectId>)> {
+        let old_max_committed_epoch = self.committed().max_committed_epoch();
+        self.committed = committed_version;
+        let new_max_committed_epoch = self.committed().max_committed_epoch();
 
         let table_id = self.table_id;
-        let min_acceptable_staging_epoch = self
-            .committed_index
-            .as_deref()
-            .map_or(HummockEpoch::MIN, |committed_index| {
-                committed_index.min_acceptable_staging_epoch()
-            });
+        let mut min_acceptable_staging_epoch = old_max_committed_epoch + 1;
+        if let Some(pruned_version) = self.committed_index.as_deref() && pruned_version.scope() > min_acceptable_staging_epoch {
+            min_acceptable_staging_epoch = pruned_version.scope();
+        }
 
         self.staging
             .imm
-            .retain(|imm| imm.epoch() > max_committed_epoch);
+            .retain(|imm| imm.epoch() > new_max_committed_epoch);
         let mut cleaned_ssts = vec![];
         self.staging.sst.retain(|sst| {
             let newest_epoch = *sst.epochs.first().expect("epochs not empty");
-            if newest_epoch > max_committed_epoch {
+            if newest_epoch > new_max_committed_epoch {
                 true
             } else {
                 if newest_epoch >= min_acceptable_staging_epoch {
@@ -518,11 +511,9 @@ impl HummockReadVersion {
         });
 
         // check epochs.last() > MCE
-        assert!(self
-            .staging
-            .sst
-            .iter()
-            .all(|sst| { sst.epochs.last().expect("epochs not empty") > &max_committed_epoch }));
+        assert!(self.staging.sst.iter().all(|sst| {
+            sst.epochs.last().expect("epochs not empty") > &new_max_committed_epoch
+        }));
 
         cleaned_ssts
     }
