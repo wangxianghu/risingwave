@@ -18,6 +18,7 @@ use await_tree::InstrumentAwait;
 use bytes::Bytes;
 use futures::{Future, TryFutureExt, TryStreamExt};
 use futures_async_stream::try_stream;
+use risingwave_common::buffer::Bitmap;
 use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::HummockReadEpoch;
 use tracing::error;
@@ -237,8 +238,8 @@ impl<S: LocalStateStore> LocalStateStore for MonitoredStateStore<S> {
         self.inner.seal_current_epoch(next_epoch)
     }
 
-    fn on_vnode_stale(&mut self) {
-        self.inner.on_vnode_stale();
+    fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>) {
+        self.inner.update_vnode_bitmap(new_vnodes);
     }
 }
 

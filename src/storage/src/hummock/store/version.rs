@@ -22,7 +22,7 @@ use itertools::Itertools;
 use minitrace::future::FutureExt;
 use minitrace::Span;
 use parking_lot::RwLock;
-use risingwave_common::buffer::Bitmap;
+use risingwave_common::buffer::{cache_may_stale, Bitmap};
 use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::key::{
     bound_table_key_range, FullKey, TableKey, TableKeyRange, UserKey,
@@ -539,8 +539,14 @@ impl HummockReadVersion {
         };
     }
 
-    pub fn on_vnode_stale(&mut self) {
-        self.rewind();
+    pub fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>) {
+        let cache_may_stale = cache_may_stale(&self.vnodes, &new_vnodes);
+
+        if cache_may_stale {
+            self.rewind();
+        }
+
+        self.vnodes = new_vnodes;
     }
 
     pub fn staging(&self) -> &StagingVersion {

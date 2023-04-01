@@ -622,8 +622,9 @@ where
 
         if cache_may_stale {
             self.state_clean_watermark = None;
-            self.local_store.on_vnode_stale();
         }
+
+        self.local_store.update_vnode_bitmap(new_vnodes.clone());
 
         (
             std::mem::replace(&mut self.vnodes, new_vnodes),

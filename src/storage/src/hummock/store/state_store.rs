@@ -20,6 +20,7 @@ use await_tree::InstrumentAwait;
 use bytes::Bytes;
 use minitrace::future::FutureExt;
 use parking_lot::RwLock;
+use risingwave_common::buffer::Bitmap;
 use risingwave_common::catalog::{TableId, TableOption};
 use risingwave_hummock_sdk::key::{map_table_key_range, TableKey, TableKeyRange};
 use risingwave_hummock_sdk::HummockEpoch;
@@ -335,8 +336,8 @@ impl LocalStateStore for LocalHummockStorage {
         );
     }
 
-    fn on_vnode_stale(&mut self) {
-        self.read_version.write().on_vnode_stale();
+    fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>) {
+        self.read_version.write().update_vnode_bitmap(new_vnodes);
     }
 }
 

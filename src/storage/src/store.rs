@@ -314,7 +314,7 @@ pub trait LocalStateStore: StaticSendSync {
         read_options: ReadOptions,
     ) -> Self::MayExistFuture<'_>;
 
-    fn on_vnode_stale(&mut self);
+    fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>);
 }
 
 /// If `exhaust_iter` is true, prefetch will be enabled. Prefetching may increase the memory

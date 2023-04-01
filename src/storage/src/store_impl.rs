@@ -224,10 +224,12 @@ pub mod verify {
     use std::fmt::Debug;
     use std::future::Future;
     use std::ops::Deref;
+    use std::sync::Arc;
 
     use bytes::Bytes;
     use futures::{pin_mut, TryStreamExt};
     use futures_async_stream::try_stream;
+    use risingwave_common::buffer::Bitmap;
     use risingwave_hummock_sdk::HummockReadEpoch;
     use tracing::log::warn;
 
@@ -476,11 +478,11 @@ pub mod verify {
             ret
         }
 
-        fn on_vnode_stale(&mut self) {
+        fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>) {
             if let Some(expected) = &mut self.expected {
-                expected.on_vnode_stale();
+                expected.update_vnode_bitmap(new_vnodes.clone());
             }
-            self.actual.on_vnode_stale();
+            self.actual.update_vnode_bitmap(new_vnodes);
         }
     }
 
@@ -701,10 +703,12 @@ impl AsHummockTrait for SledStateStore {
 pub mod boxed_state_store {
     use std::future::Future;
     use std::ops::{Deref, DerefMut};
+    use std::sync::Arc;
 
     use bytes::Bytes;
     use futures::stream::BoxStream;
     use futures::StreamExt;
+    use risingwave_common::buffer::Bitmap;
     use risingwave_hummock_sdk::HummockReadEpoch;
 
     use crate::error::StorageResult;
@@ -791,7 +795,7 @@ pub mod boxed_state_store {
 
         fn seal_current_epoch(&mut self, next_epoch: u64);
 
-        fn on_vnode_stale(&mut self);
+        fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>);
     }
 
     #[async_trait::async_trait]
@@ -849,8 +853,8 @@ pub mod boxed_state_store {
             self.seal_current_epoch(next_epoch)
         }
 
-        fn on_vnode_stale(&mut self) {
-            self.on_vnode_stale();
+        fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>) {
+            self.update_vnode_bitmap(new_vnodes);
         }
     }
 
@@ -914,8 +918,8 @@ pub mod boxed_state_store {
             self.deref_mut().seal_current_epoch(next_epoch)
         }
 
-        fn on_vnode_stale(&mut self) {
-            self.deref_mut().on_vnode_stale();
+        fn update_vnode_bitmap(&mut self, new_vnodes: Arc<Bitmap>) {
+            self.deref_mut().update_vnode_bitmap(new_vnodes);
         }
     }
 
