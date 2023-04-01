@@ -35,7 +35,7 @@ use crate::hummock::event_handler::uploader::UploadTaskPayload;
 use crate::hummock::iterator::{Forward, HummockIterator, OrderedMergeIteratorInner};
 use crate::hummock::sstable::DeleteRangeAggregatorBuilder;
 use crate::hummock::{
-    CachePolicy, HummockError, HummockResult, RangeTombstonesCollector, SstableBuilderOptions,
+    CachePolicy, CompactionDeleteRanges, HummockError, HummockResult, SstableBuilderOptions,
 };
 
 const GC_DELETE_KEYS_FOR_FLUSH: bool = false;
@@ -169,7 +169,7 @@ async fn compact_shared_buffer(
     let mut output_ssts = Vec::with_capacity(parallelism);
     let mut compaction_futures = vec![];
 
-    let agg = builder.build(GC_WATERMARK_FOR_FLUSH, GC_DELETE_KEYS_FOR_FLUSH);
+    let agg = builder.build_for_compaction(GC_WATERMARK_FOR_FLUSH, GC_DELETE_KEYS_FOR_FLUSH);
     for (split_index, key_range) in splits.into_iter().enumerate() {
         let compactor = SharedBufferCompactRunner::new(
             split_index,
@@ -275,7 +275,7 @@ impl SharedBufferCompactRunner {
         self,
         iter: impl HummockIterator<Direction = Forward>,
         filter_key_extractor: Arc<FilterKeyExtractorImpl>,
-        del_agg: Arc<RangeTombstonesCollector>,
+        del_agg: Arc<CompactionDeleteRanges>,
     ) -> HummockResult<CompactOutput> {
         let dummy_compaction_filter = DummyCompactionFilter {};
         let (ssts, table_stats_map) = self
