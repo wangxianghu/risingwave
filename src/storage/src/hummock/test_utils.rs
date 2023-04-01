@@ -218,7 +218,23 @@ pub async fn gen_test_sstable_inner<B: AsRef<[u8]>>(
         .create_sst_writer(object_id, writer_opts);
     let mut b = SstableBuilder::for_test(object_id, writer, opts);
     for (key, value) in kv_iter {
-        b.add_for_test(key.to_ref(), value.as_slice(), true)
+        let mut earliest_delete_epoch = HummockEpoch::MAX;
+        for range_tombstone in &range_tombstones {
+            if range_tombstone
+                .start_user_key
+                .as_ref()
+                .le(&key.user_key.as_ref())
+                && range_tombstone
+                    .end_user_key
+                    .as_ref()
+                    .gt(&key.user_key.as_ref())
+                && range_tombstone.sequence >= key.epoch
+                && range_tombstone.sequence < earliest_delete_epoch
+            {
+                earliest_delete_epoch = range_tombstone.sequence;
+            }
+        }
+        b.add(key.to_ref(), earliest_delete_epoch, value.as_slice(), true)
             .await
             .unwrap();
     }

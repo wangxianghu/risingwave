@@ -916,12 +916,15 @@ mod tests {
         )
         .await;
         let cache = create_small_table_cache();
-        let read_options = Arc::new(SstableIteratorReadOptions::default());
+        let read_options = SstableIteratorReadOptions {
+            read_epoch_to_fast_delete: 150,
+            ..Default::default()
+        };
         let table_id = table.id;
         let iters = vec![SstableIterator::create(
             cache.insert(table.id, table.id, 1, Box::new(table), CachePriority::High),
             sstable_store.clone(),
-            read_options.clone(),
+            Arc::new(read_options),
         )];
         let mi = UnorderedMergeIteratorInner::new(iters);
 
@@ -949,10 +952,14 @@ mod tests {
         ui.next().await.unwrap();
         assert!(!ui.is_valid());
 
+        let read_options = SstableIteratorReadOptions {
+            read_epoch_to_fast_delete: 300,
+            ..Default::default()
+        };
         let iters = vec![SstableIterator::create(
             cache.lookup(table_id, &table_id).unwrap(),
             sstable_store,
-            read_options,
+            Arc::new(read_options),
         )];
         let mut del_iter = ForwardMergeRangeIterator::new(300);
         del_iter.add_sst_iter(SstableDeleteRangeIterator::new(
