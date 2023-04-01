@@ -428,7 +428,7 @@ impl LocalHummockStorage {
         memory_limiter: Arc<MemoryLimiter>,
         tracing: Arc<risingwave_tracing::RwTracingService>,
         write_limiter: WriteLimiterRef,
-        option: NewLocalOptions,
+        option: NewLocalTableOptions,
     ) -> Self {
         let stats = hummock_version_reader.stats().clone();
         Self {

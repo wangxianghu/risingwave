@@ -488,12 +488,14 @@ impl HummockEventHandler {
                     HummockEvent::RegisterReadVersion {
                         table_id,
                         is_singleton,
+                        vnodes,
                         new_read_version_sender,
                     } => {
                         let pinned_version = self.pinned_version.load();
                         let basic_read_version = Arc::new(RwLock::new(HummockReadVersion::new(
                             table_id,
                             is_singleton,
+                            vnodes,
                             (**pinned_version).clone(),
                         )));
 

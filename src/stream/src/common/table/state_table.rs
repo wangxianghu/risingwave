@@ -43,7 +43,8 @@ use risingwave_storage::row_serde::row_serde_util::{
     deserialize_pk_with_vnode, serialize_pk, serialize_pk_with_vnode,
 };
 use risingwave_storage::store::{
-    LocalStateStore, NewLocalOptions, PrefetchOptions, ReadOptions, StateStoreIterItemStream,
+    LocalStateStore, NewLocalOptions, NewLocalTableOptions, PrefetchOptions, ReadOptions,
+    StateStoreIterItemStream,
 };
 use risingwave_storage::table::{compute_chunk_vnode, compute_vnode, Distribution};
 use risingwave_storage::StateStore;
@@ -211,10 +212,13 @@ where
         };
         let local_state_store = store
             .new_local(NewLocalOptions {
-                table_id,
-                is_consistent_op,
+                table_options: NewLocalTableOptions {
+                    table_id,
+                    is_consistent_op,
+                    table_option,
+                },
                 is_singleton,
-                table_option,
+                vnodes: vnodes.clone(),
             })
             .await;
         let input_value_indices = table_catalog
@@ -400,10 +404,13 @@ where
         };
         let local_state_store = store
             .new_local(NewLocalOptions {
-                table_id,
-                is_consistent_op,
+                table_options: NewLocalTableOptions {
+                    table_id,
+                    is_consistent_op,
+                    table_option: TableOption::default(),
+                },
                 is_singleton,
-                table_option: TableOption::default(),
+                vnodes: vnodes.clone(),
             })
             .await;
 

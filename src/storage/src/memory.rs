@@ -649,7 +649,7 @@ impl<R: RangeKv> StateStore for RangeKvStateStore<R> {
     }
 
     fn new_local(&self, option: NewLocalOptions) -> Self::NewLocalFuture<'_> {
-        async move { MemtableLocalStateStore::new(self.clone(), option) }
+        async move { MemtableLocalStateStore::new(self.clone(), option.table_options) }
     }
 
     fn validate_read_epoch(&self, _epoch: HummockReadEpoch) -> StorageResult<()> {

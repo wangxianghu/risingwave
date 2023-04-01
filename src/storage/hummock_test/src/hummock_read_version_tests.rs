@@ -33,6 +33,7 @@ use risingwave_storage::hummock::store::version::{
     StagingSstableInfo, VersionUpdate,
 };
 use risingwave_storage::hummock::test_utils::gen_dummy_batch;
+use risingwave_storage::table::Distribution;
 
 use crate::test_utils::prepare_first_valid_version;
 
@@ -44,7 +45,12 @@ async fn test_read_version_basic() {
     let (pinned_version, _, _) =
         prepare_first_valid_version(env, hummock_manager_ref, worker_node).await;
 
-    let mut read_version = HummockReadVersion::new(TableId::default(), false, pinned_version);
+    let mut read_version = HummockReadVersion::new(
+        TableId::default(),
+        false,
+        Distribution::fallback_vnodes(),
+        pinned_version,
+    );
     let mut epoch = 1;
     let table_id = 0;
 
@@ -272,6 +278,7 @@ async fn test_read_filter_basic() {
     let read_version = Arc::new(RwLock::new(HummockReadVersion::new(
         TableId::default(),
         false,
+        Distribution::fallback_vnodes(),
         pinned_version,
     )));
     let epoch = 1;

@@ -19,6 +19,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::{Stream, StreamExt, TryStreamExt};
 use futures_async_stream::try_stream;
+use risingwave_common::buffer::Bitmap;
 use risingwave_common::catalog::{TableId, TableOption};
 use risingwave_common::util::epoch::Epoch;
 use risingwave_hummock_sdk::key::{FullKey, KeyPayloadType};
@@ -28,6 +29,7 @@ use crate::error::{StorageError, StorageResult};
 use crate::hummock::CachePolicy;
 use crate::monitor::{MonitoredStateStore, MonitoredStorageMetrics};
 use crate::storage_value::StorageValue;
+use crate::table::Distribution;
 use crate::write_batch::WriteBatch;
 
 pub trait StaticSendSync = Send + Sync + 'static;
@@ -366,7 +368,7 @@ pub struct WriteOptions {
 }
 
 #[derive(Clone, Default)]
-pub struct NewLocalOptions {
+pub struct NewLocalTableOptions {
     pub table_id: TableId,
     /// Whether the operation is consistent. The term `consistent` requires the following:
     ///
@@ -376,19 +378,38 @@ pub struct NewLocalOptions {
     /// 2. The old value passed from
     /// `update` and `delete` should match the original stored value.
     pub is_consistent_op: bool,
-    pub is_singleton: bool,
     pub table_option: TableOption,
+}
+
+#[derive(Clone)]
+pub struct NewLocalOptions {
+    pub table_options: NewLocalTableOptions,
+    pub is_singleton: bool,
+    pub vnodes: Arc<Bitmap>,
+}
+
+impl Default for NewLocalOptions {
+    fn default() -> Self {
+        Self {
+            table_options: NewLocalTableOptions::default(),
+            is_singleton: false,
+            vnodes: Distribution::fallback_vnodes(),
+        }
+    }
 }
 
 impl NewLocalOptions {
     pub fn for_test(table_id: TableId) -> Self {
         Self {
-            table_id,
-            is_consistent_op: false,
-            is_singleton: false,
-            table_option: TableOption {
-                retention_seconds: None,
+            table_options: NewLocalTableOptions {
+                table_id,
+                is_consistent_op: false,
+                table_option: TableOption {
+                    retention_seconds: None,
+                },
             },
+            is_singleton: false,
+            vnodes: Distribution::fallback_vnodes(),
         }
     }
 }

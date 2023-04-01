@@ -321,7 +321,7 @@ pub struct MemtableLocalStateStore<S: StateStoreWrite + StateStoreRead> {
 }
 
 impl<S: StateStoreWrite + StateStoreRead> MemtableLocalStateStore<S> {
-    pub fn new(inner: S, option: NewLocalOptions) -> Self {
+    pub fn new(inner: S, option: NewLocalTableOptions) -> Self {
         Self {
             inner,
             mem_table: MemTable::new(option.is_consistent_op),

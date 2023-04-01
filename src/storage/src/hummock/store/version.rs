@@ -22,6 +22,7 @@ use itertools::Itertools;
 use minitrace::future::FutureExt;
 use minitrace::Span;
 use parking_lot::RwLock;
+use risingwave_common::buffer::Bitmap;
 use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::key::{
     bound_table_key_range, FullKey, TableKey, TableKeyRange, UserKey,
@@ -338,6 +339,7 @@ pub struct HummockReadVersion {
     table_id: TableId,
 
     is_singleton: bool,
+    vnodes: Arc<Bitmap>,
 
     /// Local version for staging data.
     staging: StagingVersion,
@@ -349,7 +351,12 @@ pub struct HummockReadVersion {
 }
 
 impl HummockReadVersion {
-    pub fn new(table_id: TableId, is_singleton: bool, committed_version: CommittedVersion) -> Self {
+    pub fn new(
+        table_id: TableId,
+        is_singleton: bool,
+        vnodes: Arc<Bitmap>,
+        committed_version: CommittedVersion,
+    ) -> Self {
         // before build `HummockReadVersion`, we need to get the a initial version which obtained
         // from meta. want this initialization after version is initialized (now with
         // notification), so add a assert condition to guarantee correct initialization order
@@ -358,6 +365,7 @@ impl HummockReadVersion {
             table_id,
 
             is_singleton,
+            vnodes,
 
             staging: StagingVersion {
                 imm: VecDeque::default(),
@@ -375,6 +383,7 @@ impl HummockReadVersion {
         Self {
             table_id: self.table_id,
             is_singleton: self.is_singleton,
+            vnodes: self.vnodes.clone(),
             staging: self.staging().clone(),
             committed: self.committed().clone(),
             committed_index: None,
