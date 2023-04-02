@@ -1413,6 +1413,13 @@ impl GrpcMetaClient {
     }
 
     /// Return retry strategy for retrying meta requests.
+    pub fn retry_strategy_for_request_init() -> impl Iterator<Item = Duration> {
+        ExponentialBackoff::from_millis(Self::REQUEST_RETRY_BASE_INTERVAL_MS)
+            .max_delay(Duration::from_millis(Self::REQUEST_RETRY_MAX_INTERVAL_MS))
+            .take(Self::REQUEST_RETRY_MAX_ATTEMPTS)
+    }
+
+    /// Return retry strategy for retrying meta requests.
     pub fn retry_strategy_for_request() -> impl Iterator<Item = Duration> {
         ExponentialBackoff::from_millis(Self::REQUEST_RETRY_BASE_INTERVAL_MS)
             .max_delay(Duration::from_millis(Self::REQUEST_RETRY_MAX_INTERVAL_MS))
