@@ -89,7 +89,7 @@ where
         let rx = client
             .subscribe(S::SubscribeType::subscribe_type())
             .await
-            .unwrap();
+            .expect("subscribe to meta failed");
         Self {
             rx,
             client,

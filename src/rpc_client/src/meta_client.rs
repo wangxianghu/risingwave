@@ -117,11 +117,16 @@ impl MetaClient {
             worker_id: self.worker_id(),
         };
         let retry_strategy = GrpcMetaClient::retry_strategy_for_request();
-        tokio_retry::Retry::spawn(retry_strategy, || async {
+        let result = tokio_retry::Retry::spawn(retry_strategy, || async {
             let request = request.clone();
             self.inner.subscribe(request).await
         })
-        .await
+        .await;
+        if let Err(_e) = result.as_ref() {
+            tracing::error!("debug error {}",  self.host_addr.to_string())
+        }
+
+        result
     }
 
     pub async fn create_connection(&self, req: create_connection_request::Payload) -> Result<u32> {
@@ -199,12 +204,14 @@ impl MetaClient {
             host: Some(addr.to_protobuf()),
             worker_node_parallelism: worker_node_parallelism as u64,
         };
-        let add_worker_resp =
-            tokio_retry::Retry::spawn(GrpcMetaClient::retry_strategy_for_request_init(), || async {
+        let add_worker_resp = tokio_retry::Retry::spawn(
+            GrpcMetaClient::retry_strategy_for_request_init(),
+            || async {
                 let request = add_worker_request.clone();
                 grpc_meta_client.add_worker_node(request).await
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         tracing::info!("register worker done");
         let worker_node = add_worker_resp
@@ -212,12 +219,14 @@ impl MetaClient {
             .expect("AddWorkerNodeResponse::node is empty");
 
         let system_params_request = GetSystemParamsRequest {};
-        let system_params_resp =
-            tokio_retry::Retry::spawn(GrpcMetaClient::retry_strategy_for_request_init(), || async {
+        let system_params_resp = tokio_retry::Retry::spawn(
+            GrpcMetaClient::retry_strategy_for_request_init(),
+            || async {
                 let request = system_params_request.clone();
                 grpc_meta_client.get_system_params(request).await
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         tracing::info!("system param done");
 
