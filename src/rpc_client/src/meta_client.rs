@@ -200,7 +200,7 @@ impl MetaClient {
             worker_node_parallelism: worker_node_parallelism as u64,
         };
         let add_worker_resp =
-            tokio_retry::Retry::spawn(GrpcMetaClient::retry_strategy_for_request(), || async {
+            tokio_retry::Retry::spawn(GrpcMetaClient::retry_strategy_for_request_init(), || async {
                 let request = add_worker_request.clone();
                 grpc_meta_client.add_worker_node(request).await
             })
@@ -213,7 +213,7 @@ impl MetaClient {
 
         let system_params_request = GetSystemParamsRequest {};
         let system_params_resp =
-            tokio_retry::Retry::spawn(GrpcMetaClient::retry_strategy_for_request(), || async {
+            tokio_retry::Retry::spawn(GrpcMetaClient::retry_strategy_for_request_init(), || async {
                 let request = system_params_request.clone();
                 grpc_meta_client.get_system_params(request).await
             })
