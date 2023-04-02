@@ -136,6 +136,7 @@ impl BlockIterator {
         self.offset = self.block.len();
         self.restart_point_index = self.block.restart_point_len();
         self.key.clear();
+        self.earliest_delete_epoch = HummockEpoch::MAX;
         self.value_range = 0..0;
         self.entry_len = 0;
     }
