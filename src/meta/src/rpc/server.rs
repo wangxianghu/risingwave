@@ -619,6 +619,8 @@ pub async fn start_service_as_election_leader<S: MetaStore>(
         }
     };
 
+    tracing::info!("start meta server");
+
     tonic::transport::Server::builder()
         .layer(MetricsMiddlewareLayer::new(meta_metrics))
         .add_service(HeartbeatServiceServer::new(heartbeat_srv))
