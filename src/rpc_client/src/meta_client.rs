@@ -205,6 +205,8 @@ impl MetaClient {
                 grpc_meta_client.add_worker_node(request).await
             })
             .await?;
+
+        tracing::info!("register worker done");
         let worker_node = add_worker_resp
             .node
             .expect("AddWorkerNodeResponse::node is empty");
@@ -216,6 +218,8 @@ impl MetaClient {
                 grpc_meta_client.get_system_params(request).await
             })
             .await?;
+
+        tracing::info!("system param done");
 
         Ok((
             Self {
