@@ -117,7 +117,10 @@ impl MetaClient {
             worker_id: self.worker_id(),
         };
         let retry_strategy = GrpcMetaClient::retry_strategy_for_request();
+
+        let addr = self.host_addr.to_string();
         let result = tokio_retry::Retry::spawn(retry_strategy, || async {
+            tracing::info!("try to subscribe to meta server {}", addr);
             let request = request.clone();
             self.inner.subscribe(request).await
         })
