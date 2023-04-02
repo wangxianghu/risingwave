@@ -1296,7 +1296,7 @@ impl GrpcMetaClient {
 
     /// Connect to the meta server from `addrs`.
     pub async fn new(strategy: MetaAddressStrategy) -> Result<Self> {
-        let retry_strategy = Self::retry_strategy_for_init();
+        let retry_strategy = Self::retry_strategy_for_member_init();
 
         let (channel, addr) = match &strategy {
             MetaAddressStrategy::LoadBalance(addr) => {
@@ -1389,10 +1389,10 @@ impl GrpcMetaClient {
             .map_err(RpcError::TransportError)
     }
 
-    pub(crate) fn retry_strategy_for_init() -> impl Iterator<Item = Duration> {
+    pub(crate) fn retry_strategy_for_member_init() -> impl Iterator<Item = Duration> {
         ExponentialBackoff::from_millis(Self::CONN_RETRY_BASE_INTERVAL_MS)
             .max_delay(Duration::from_millis(Self::CONN_RETRY_MAX_INTERVAL_MS))
-            .take(Self::CONN_RETRY_MAX_ATTEMPTS)
+            .take(70)
     }
 
     pub(crate) fn retry_strategy_for_member_discovery() -> impl Iterator<Item = Duration> {
