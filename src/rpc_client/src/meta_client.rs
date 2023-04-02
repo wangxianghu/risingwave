@@ -1296,7 +1296,9 @@ impl GrpcMetaClient {
 
     /// Connect to the meta server from `addrs`.
     pub async fn new(strategy: MetaAddressStrategy) -> Result<Self> {
-        let retry_strategy = Self::retry_strategy_for_member_init();
+        let retry_strategy = Self::retry_strategy_for_member_init().collect_vec();
+
+        tracing::info!("retry {:?}", retry_strategy);
 
         let (channel, addr) = match &strategy {
             MetaAddressStrategy::LoadBalance(addr) => {
@@ -1353,6 +1355,8 @@ impl GrpcMetaClient {
             .try_collect()?;
 
         let channel = tokio_retry::Retry::spawn(retry_strategy, || async {
+            tracing::info!("connecting to channel");
+
             let endpoints = endpoints.clone();
 
             for (endpoint, addr) in endpoints {

@@ -72,7 +72,7 @@ pub async fn compactor_serve(
         0,
     )
     .await
-    .unwrap();
+    .expect(&format!("panic in {:?}", advertise_addr));
     info!("Assigned compactor id {}", meta_client.worker_id());
     meta_client.activate(&advertise_addr).await.unwrap();
 
