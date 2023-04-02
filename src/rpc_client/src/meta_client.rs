@@ -116,7 +116,7 @@ impl MetaClient {
             host: Some(self.host_addr.to_protobuf()),
             worker_id: self.worker_id(),
         };
-        let retry_strategy = GrpcMetaClient::retry_strategy_for_request();
+        let retry_strategy = GrpcMetaClient::retry_strategy_for_request_init();
 
         let addr = self.host_addr.to_string();
         let result = tokio_retry::Retry::spawn(retry_strategy, || async {
