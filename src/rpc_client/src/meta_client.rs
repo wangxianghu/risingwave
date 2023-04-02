@@ -1302,10 +1302,10 @@ impl GrpcMetaClient {
 
         let (channel, addr) = match &strategy {
             MetaAddressStrategy::LoadBalance(addr) => {
-                Self::try_build_rpc_channel(vec![addr.clone()], retry_strategy).await
+                Self::try_build_rpc_channel(vec![addr.clone()], retry_strategy.into_iter()).await
             }
             MetaAddressStrategy::List(addrs) => {
-                Self::try_build_rpc_channel(addrs.clone(), retry_strategy).await
+                Self::try_build_rpc_channel(addrs.clone(), retry_strategy.into_iter()).await
             }
         }?;
         let (force_refresh_sender, force_refresh_receiver) = mpsc::channel(1);
