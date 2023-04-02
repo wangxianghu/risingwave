@@ -25,7 +25,7 @@ use futures::stream::BoxStream;
 use itertools::Itertools;
 use lru::LruCache;
 use risingwave_common::catalog::{CatalogVersion, FunctionId, IndexId, TableId};
-use risingwave_common::config::MAX_CONNECTION_WINDOW_SIZE;
+use risingwave_common::config::{MetaConfig, MAX_CONNECTION_WINDOW_SIZE};
 use risingwave_common::system_param::reader::SystemParamsReader;
 use risingwave_common::telemetry::report::TelemetryInfoFetcher;
 use risingwave_common::util::addr::HostAddr;
@@ -89,6 +89,7 @@ pub struct MetaClient {
     worker_type: WorkerType,
     host_addr: HostAddr,
     inner: GrpcMetaClient,
+    meta_config: MetaConfig,
 }
 
 impl MetaClient {
@@ -126,7 +127,7 @@ impl MetaClient {
         })
         .await;
         if let Err(_e) = result.as_ref() {
-            tracing::error!("debug error {}",  self.host_addr.to_string())
+            tracing::error!("debug error {}", self.host_addr.to_string())
         }
 
         result
@@ -196,6 +197,7 @@ impl MetaClient {
         worker_type: WorkerType,
         addr: &HostAddr,
         worker_node_parallelism: usize,
+        meta_config: &MetaConfig,
     ) -> Result<(Self, SystemParamsReader)> {
         let addr_strategy = Self::parse_meta_addr(meta_addr)?;
         tracing::info!("register meta client using strategy: {}", addr_strategy);
@@ -239,6 +241,7 @@ impl MetaClient {
                 worker_type,
                 host_addr: addr.clone(),
                 inner: grpc_meta_client,
+                meta_config: meta_config.to_owned(),
             },
             system_params_resp.params.unwrap().into(),
         ))

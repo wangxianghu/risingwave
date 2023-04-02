@@ -70,6 +70,7 @@ pub async fn compactor_serve(
         WorkerType::Compactor,
         &advertise_addr,
         0,
+        &config.meta,
     )
     .await
     .expect(&format!("panic in {:?}", advertise_addr));
