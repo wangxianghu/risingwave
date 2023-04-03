@@ -20,7 +20,6 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
 
 use bytes::Bytes;
-use itertools::Itertools;
 use risingwave_common::cache::CachePriority;
 use risingwave_common::catalog::{TableId, TableOption};
 use risingwave_hummock_sdk::can_concat;
@@ -124,31 +123,15 @@ pub(crate) fn search_sst_idx(ssts: &[SstableInfo], key: UserKey<&[u8]>) -> usize
 /// Prune overlapping SSTs that does not overlap with a specific key range or does not overlap with
 /// a specific table id. Returns the sst ids after pruning.
 pub fn prune_overlapping_ssts<'a, R, B>(
-    ssts: impl Iterator<Item = &'a SstableInfo>,
-    table_id: TableId,
-    table_key_range: &'a R,
-) -> impl Iterator<Item = &'a SstableInfo>
-where
-    R: RangeBounds<TableKey<B>>,
-    B: AsRef<[u8]> + EmptySliceRef,
-{
-    ssts.filter(move |info| filter_single_sst(info, table_id, table_key_range))
-}
-
-/// Prune overlapping SSTs that does not overlap with a specific key range or does not overlap with
-/// a specific table id. Returns the sst ids after pruning with reverse order in a collection.
-pub fn prune_overlapping_ssts_rev<'a, R, B>(
     ssts: impl DoubleEndedIterator<Item = &'a SstableInfo>,
     table_id: TableId,
     table_key_range: &'a R,
-) -> Vec<&'a SstableInfo>
+) -> impl DoubleEndedIterator<Item = &'a SstableInfo>
 where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
     ssts.filter(move |info| filter_single_sst(info, table_id, table_key_range))
-        .rev()
-        .collect_vec()
 }
 
 /// Prune non-overlapping SSTs that does not overlap with a specific key range or does not overlap

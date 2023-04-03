@@ -47,7 +47,7 @@ use crate::hummock::sstable_store::SstableStoreRef;
 use crate::hummock::store::state_store::HummockStorageIterator;
 use crate::hummock::utils::{
     check_subset_preserve_order, filter_single_sst, prune_nonoverlapping_ssts,
-    prune_overlapping_ssts, prune_overlapping_ssts_rev, range_overlap, search_sst_idx,
+    prune_overlapping_ssts, range_overlap, search_sst_idx,
 };
 use crate::hummock::{
     get_from_batch, get_from_sstable_info, hit_sstable_bloom_filter, DeleteRangeAggregator,
@@ -912,19 +912,23 @@ impl HummockVersionReader {
 
                 // Overlapping
                 let fetch_meta_req = if let Some(sst_indices) = sst_indices {
-                    prune_overlapping_ssts_rev(
+                    prune_overlapping_ssts(
                         sst_indices
                             .iter()
                             .map(|sst_index| &level.table_infos[*sst_index]),
                         read_options.table_id,
                         &table_key_range,
                     )
+                    .rev()
+                    .collect_vec()
                 } else {
-                    prune_overlapping_ssts_rev(
+                    prune_overlapping_ssts(
                         level.table_infos.iter(),
                         read_options.table_id,
                         &table_key_range,
                     )
+                    .rev()
+                    .collect_vec()
                 };
                 if !fetch_meta_req.is_empty() {
                     fetch_meta_reqs.push((level.level_type, fetch_meta_req));
@@ -1122,27 +1126,23 @@ impl HummockVersionReader {
                         });
 
                         if let Some(sst_indices) = sst_indices {
-                            if prune_overlapping_ssts(
+                            let mut pruned_ssts_iter = prune_overlapping_ssts(
                                 sst_indices
                                     .iter()
                                     .map(|sst_index| &level.table_infos[*sst_index]),
                                 table_id,
                                 &table_key_range,
-                            )
-                            .next()
-                            .is_some()
-                            {
+                            );
+                            if pruned_ssts_iter.next().is_some() {
                                 return Ok(true);
                             }
                         } else {
-                            if prune_overlapping_ssts(
+                            let mut pruned_ssts_iter = prune_overlapping_ssts(
                                 level.table_infos.iter(),
                                 table_id,
                                 &table_key_range,
-                            )
-                            .next()
-                            .is_some()
-                            {
+                            );
+                            if pruned_ssts_iter.next().is_some() {
                                 return Ok(true);
                             }
                         }
