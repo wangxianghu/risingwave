@@ -192,6 +192,8 @@ impl StagingVersion {
 }
 
 /// `(SST positions, SST object ids)`
+/// We can track ssts in pruned version by `SST object id` because there won't be two SSTs which
+/// both include the `table_id` of this read version and share the same `SST object id`.
 type PrunedVersionLevel = (Vec<usize>, Vec<HummockSstableObjectId>);
 pub struct PrunedVersion {
     table_id: TableId,
@@ -230,6 +232,7 @@ impl PrunedVersion {
         sub_level: &Level,
         object_ids: impl Iterator<Item = HummockSstableObjectId>,
     ) -> PrunedVersionLevel {
+        // hexff means '0xff'
         let mut hexff_indices = object_ids
             .map(|object_id| (usize::MAX, object_id))
             .collect_vec();
