@@ -211,7 +211,9 @@ impl MetaClient {
         ));
 
         let init_result: Result<_> = tokio_retry::Retry::spawn(retry_strategy, || async {
-            let grpc_meta_client = GrpcMetaClient::new(&addr_strategy).await.context("create meta client failed")?;
+            let grpc_meta_client = GrpcMetaClient::new(&addr_strategy)
+                .await
+                .context("create meta client failed")?;
 
             let add_worker_resp = grpc_meta_client
                 .add_worker_node(AddWorkerNodeRequest {
@@ -1310,8 +1312,6 @@ impl GrpcMetaClient {
             core: Arc::new(RwLock::new(GrpcMetaClientCore::new(channel))),
         };
 
-        client.force_refresh_leader().await?;
-
         let meta_member_client = client.core.read().await.meta_member_client.clone();
         let members = match strategy {
             MetaAddressStrategy::LoadBalance(_) => Either::Left(meta_member_client),
@@ -1329,6 +1329,8 @@ impl GrpcMetaClient {
         client
             .start_meta_member_monitor(addr, members, force_refresh_receiver)
             .await?;
+
+        client.force_refresh_leader().await?;
 
         Ok(client)
     }
