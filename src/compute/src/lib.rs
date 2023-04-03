@@ -84,6 +84,14 @@ pub struct ComputeNodeOpts {
     #[clap(long, env = "RW_PARALLELISM", default_value_t = default_parallelism())]
     pub parallelism: usize,
 
+    /// The compute node can be used for streaming.
+    #[clap(long, default_value_t = default_is_streaming())]
+    pub is_streaming: bool,
+
+    /// The compute node can be used for serving.
+    #[clap(long, default_value_t = default_is_serving())]
+    pub is_serving: bool,
+
     /// The policy for compute node memory control. Valid values:
     /// - streaming-only
     /// - streaming-batch
@@ -143,6 +151,11 @@ fn validate_opts(opts: &ComputeNodeOpts) {
         tracing::error!(error_msg);
         panic!("{}", error_msg);
     }
+    if !opts.is_streaming && !opts.is_serving {
+        let error_msg = "is_streaming and is_serving should not both be false";
+        tracing::error!(error_msg);
+        panic!("{}", error_msg);
+    }
     let total_cpu_available = total_cpu_available().ceil() as usize;
     if opts.parallelism > total_cpu_available {
         let error_msg = format!(
@@ -195,4 +208,12 @@ fn default_total_memory_bytes() -> usize {
 
 fn default_parallelism() -> usize {
     total_cpu_available().ceil() as usize
+}
+
+fn default_is_streaming() -> bool {
+    true
+}
+
+fn default_is_serving() -> bool {
+    true
 }

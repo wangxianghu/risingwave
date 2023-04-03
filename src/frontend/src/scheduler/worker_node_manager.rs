@@ -15,7 +15,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use rand::seq::SliceRandom;
+use itertools::Itertools;
+use rand::seq::{IteratorRandom, SliceRandom};
 use risingwave_common::bail;
 use risingwave_common::hash::{ParallelUnitId, ParallelUnitMapping};
 use risingwave_common::util::worker_util::get_pu_to_worker_mapping;
@@ -29,7 +30,6 @@ pub struct WorkerNodeManager {
     inner: RwLock<WorkerNodeManagerInner>,
 }
 
-#[derive(Default)]
 struct WorkerNodeManagerInner {
     worker_nodes: Vec<WorkerNode>,
     /// fragment vnode mapping info.
@@ -47,7 +47,10 @@ impl Default for WorkerNodeManager {
 impl WorkerNodeManager {
     pub fn new() -> Self {
         Self {
-            inner: RwLock::new(WorkerNodeManagerInner::default()),
+            inner: RwLock::new(WorkerNodeManagerInner {
+                worker_nodes: Default::default(),
+                fragment_vnode_mapping: Default::default(),
+            }),
         }
     }
 
@@ -183,6 +186,46 @@ impl WorkerNodeManager {
             .remove(fragment_id)
             .unwrap();
     }
+
+    // TODO #8940: `e2e-test-parallel-in-memory.sh` is expected to fail after this PR.
+    /// Returns vnode mapping for serving.
+    /// `fragment_id` is a hint providing streaming vnode mapping.
+    pub fn serving_vnode_mapping(
+        &self,
+        fragment_id: Option<FragmentId>,
+    ) -> SchedulerResult<ParallelUnitMapping> {
+        let guard = self.inner.read().unwrap();
+        // TODO #8940: improve this naive vnode mapping builder to leverage locality
+        let serving_workers = guard
+            .worker_nodes
+            .iter()
+            .filter(|w| w.property.as_ref().unwrap().is_serving)
+            .collect_vec();
+        let mut pus = vec![];
+        for w in serving_workers {
+            pus.extend(w.parallel_units.clone());
+        }
+        if pus.is_empty() {
+            return Err(SchedulerError::EmptyWorkerNodes);
+        }
+
+        // Note: arbitrary `select_num` is fine, as we already ensure the correctness even when
+        // querying a singleton with multiple serving PUs. Here we set `select_num` equal to
+        // fragment's streaming parallelism if any, or 1 otherwise.
+        // TODO #8940: should we ensure deterministic selection when serving workers doesn't change?
+        let mut select_num = 1;
+        if let Some(fragment_id) = fragment_id {
+            let streaming_vnode_mapping = guard.fragment_vnode_mapping.get(&fragment_id);
+            if let Some(streaming_vnode_mapping) = streaming_vnode_mapping {
+                select_num =
+                    std::cmp::min(select_num, streaming_vnode_mapping.iter_unique().count());
+            }
+        }
+        let pus = pus
+            .into_iter()
+            .choose_multiple(&mut rand::thread_rng(), select_num);
+        Ok(ParallelUnitMapping::build(&pus))
+    }
 }
 
 #[cfg(test)]
@@ -206,6 +249,7 @@ mod tests {
                 host: Some(HostAddr::try_from("127.0.0.1:1234").unwrap().to_protobuf()),
                 state: worker_node::State::Running as i32,
                 parallel_units: vec![],
+                property: Default::default(),
             },
             WorkerNode {
                 id: 2,
@@ -213,6 +257,7 @@ mod tests {
                 host: Some(HostAddr::try_from("127.0.0.1:1235").unwrap().to_protobuf()),
                 state: worker_node::State::Running as i32,
                 parallel_units: vec![],
+                property: Default::default(),
             },
         ];
         worker_nodes

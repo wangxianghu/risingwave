@@ -95,7 +95,7 @@ public class MetaClient implements AutoCloseable {
                         .setWorkerType(WorkerType.RISE_CTL)
                         .setHost(
                                 HostAddress.newBuilder().setHost("127.0.0.1").setPort(8880).build())
-                        .setWorkerNodeParallelism(0)
+                        // TODO #8940: set property
                         .build();
         AddWorkerNodeResponse resp = clusterStub.addWorkerNode(req);
 
