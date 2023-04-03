@@ -75,7 +75,7 @@ pub async fn compactor_serve(
     .await
     .expect(&format!("panic in {:?}", advertise_addr));
     info!("Assigned compactor id {}", meta_client.worker_id());
-    meta_client.activate(&advertise_addr).await.unwrap();
+    meta_client.activate(&advertise_addr).await.expect("activate failed");
 
     // Boot compactor
     let registry = prometheus::Registry::new();

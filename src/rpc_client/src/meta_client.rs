@@ -117,7 +117,10 @@ impl MetaClient {
             host: Some(self.host_addr.to_protobuf()),
             worker_id: self.worker_id(),
         };
-        let retry_strategy = GrpcMetaClient::retry_strategy_for_request_init();
+
+        let retry_strategy = GrpcMetaClient::retry_strategy_for_init(Duration::from_secs(
+            self.meta_config.max_heartbeat_interval_secs as u64,
+        ));
 
         let addr = self.host_addr.to_string();
         let result = tokio_retry::Retry::spawn(retry_strategy, || async {
@@ -202,38 +205,35 @@ impl MetaClient {
         let addr_strategy = Self::parse_meta_addr(meta_addr)?;
         tracing::info!("register meta client using strategy: {}", addr_strategy);
 
-        let grpc_meta_client = GrpcMetaClient::new(addr_strategy).await?;
+        // Retry until reaching `max_heartbeat_interval_secs`
+        let retry_strategy = GrpcMetaClient::retry_strategy_for_init(Duration::from_secs(
+            meta_config.max_heartbeat_interval_secs as u64,
+        ));
 
-        let add_worker_request = AddWorkerNodeRequest {
-            worker_type: worker_type as i32,
-            host: Some(addr.to_protobuf()),
-            worker_node_parallelism: worker_node_parallelism as u64,
-        };
-        let add_worker_resp = tokio_retry::Retry::spawn(
-            GrpcMetaClient::retry_strategy_for_request_init(),
-            || async {
-                let request = add_worker_request.clone();
-                grpc_meta_client.add_worker_node(request).await
-            },
-        )
-        .await?;
+        let init_result: Result<_> = tokio_retry::Retry::spawn(retry_strategy, || async {
+            let grpc_meta_client = GrpcMetaClient::new(&addr_strategy).await?;
 
-        tracing::info!("register worker done");
+            let add_worker_resp = grpc_meta_client
+                .add_worker_node(AddWorkerNodeRequest {
+                    worker_type: worker_type as i32,
+                    host: Some(addr.to_protobuf()),
+                    worker_node_parallelism: worker_node_parallelism as u64,
+                })
+                .await?;
+
+            let system_params_resp = grpc_meta_client
+                .get_system_params(GetSystemParamsRequest {})
+                .await?;
+
+            Ok((add_worker_resp, system_params_resp, grpc_meta_client))
+        })
+        .await;
+
+        let (add_worker_resp, system_params_resp, grpc_meta_client) = init_result?;
+
         let worker_node = add_worker_resp
             .node
             .expect("AddWorkerNodeResponse::node is empty");
-
-        let system_params_request = GetSystemParamsRequest {};
-        let system_params_resp = tokio_retry::Retry::spawn(
-            GrpcMetaClient::retry_strategy_for_request_init(),
-            || async {
-                let request = system_params_request.clone();
-                grpc_meta_client.get_system_params(request).await
-            },
-        )
-        .await?;
-
-        tracing::info!("system param done");
 
         Ok((
             Self {
@@ -252,7 +252,9 @@ impl MetaClient {
         let request = ActivateWorkerNodeRequest {
             host: Some(addr.to_protobuf()),
         };
-        let retry_strategy = GrpcMetaClient::retry_strategy_for_request();
+        let retry_strategy = GrpcMetaClient::retry_strategy_for_init(Duration::from_secs(
+            self.meta_config.max_heartbeat_interval_secs as u64,
+        ));
         tokio_retry::Retry::spawn(retry_strategy, || async {
             let request = request.clone();
             self.inner.activate_worker_node(request).await
@@ -1213,13 +1215,8 @@ impl MetaMemberManagement {
             if discovered_leader != self.current_leader {
                 tracing::info!("new meta leader {} discovered", discovered_leader);
 
-                let retry_strategy = GrpcMetaClient::retry_strategy_for_member_discovery();
-
-                let (channel, _) = GrpcMetaClient::try_build_rpc_channel(
-                    vec![discovered_leader.clone()],
-                    retry_strategy,
-                )
-                .await?;
+                let endpoint = GrpcMetaClient::addr_to_endpoint(discovered_leader.clone())?;
+                let channel = GrpcMetaClient::connect_to_endpoint(endpoint).await?;
 
                 self.recreate_core(channel).await;
                 self.current_leader = discovered_leader;
@@ -1231,28 +1228,14 @@ impl MetaMemberManagement {
 }
 
 impl GrpcMetaClient {
-    // Retry base interval in ms for connecting to meta server.
-    const CONN_RETRY_BASE_INTERVAL_MS: u64 = 100;
-    // Max retry interval in ms for connecting to meta server.
-    const CONN_RETRY_MAX_ATTEMPTS: usize = 10;
-    // Max retry times for connecting to meta server.
-    const CONN_RETRY_MAX_INTERVAL_MS: u64 = 5000;
     // See `Endpoint::http2_keep_alive_interval`
     const ENDPOINT_KEEP_ALIVE_INTERVAL_SEC: u64 = 60;
     // See `Endpoint::keep_alive_timeout`
     const ENDPOINT_KEEP_ALIVE_TIMEOUT_SEC: u64 = 60;
-    // Retry base interval in ms for connecting to new discovered meta leader.
-    const MEMBER_DISCOVERY_RETRY_BASE_INTERVAL_MS: u64 = 100;
-    // Max retry interval in ms for connecting to new discovered meta leader.
-    const MEMBER_DISCOVERY_RETRY_MAX_ATTEMPTS: usize = 10;
-    // Max retry times for connecting to new discovered meta leader.
-    const MEMBER_DISCOVERY_RETRY_MAX_INTERVAL_MS: u64 = 1000;
-    // Max retry times for request to meta server.
-    const REQUEST_RETRY_BASE_INTERVAL_MS: u64 = 50;
-    // Max retry times for requesting to meta server.
-    const REQUEST_RETRY_MAX_ATTEMPTS: usize = 10;
-    // Max retry interval in ms for requesting to meta server.
-    const REQUEST_RETRY_MAX_INTERVAL_MS: u64 = 5000;
+    // Retry base interval in ms for connecting to meta server.
+    const INIT_RETRY_BASE_INTERVAL_MS: u64 = 50;
+    // Max retry times for connecting to meta server.
+    const INIT_RETRY_MAX_INTERVAL_MS: u64 = 5000;
 
     async fn start_meta_member_monitor(
         &self,
@@ -1314,18 +1297,12 @@ impl GrpcMetaClient {
     }
 
     /// Connect to the meta server from `addrs`.
-    pub async fn new(strategy: MetaAddressStrategy) -> Result<Self> {
-        let retry_strategy = Self::retry_strategy_for_member_init().collect_vec();
-
-        tracing::info!("retry {:?}", retry_strategy);
-
-        let (channel, addr) = match &strategy {
+    pub async fn new(strategy: &MetaAddressStrategy) -> Result<Self> {
+        let (channel, addr) = match strategy {
             MetaAddressStrategy::LoadBalance(addr) => {
-                Self::try_build_rpc_channel(vec![addr.clone()], retry_strategy.into_iter()).await
+                Self::try_build_rpc_channel(vec![addr.clone()]).await
             }
-            MetaAddressStrategy::List(addrs) => {
-                Self::try_build_rpc_channel(addrs.clone(), retry_strategy.into_iter()).await
-            }
+            MetaAddressStrategy::List(addrs) => Self::try_build_rpc_channel(addrs.clone()).await,
         }?;
         let (force_refresh_sender, force_refresh_receiver) = mpsc::channel(1);
         let client = GrpcMetaClient {
@@ -1334,7 +1311,7 @@ impl GrpcMetaClient {
         };
 
         let meta_member_client = client.core.read().await.meta_member_client.clone();
-        let members = match &strategy {
+        let members = match strategy {
             MetaAddressStrategy::LoadBalance(_) => Either::Left(meta_member_client),
             MetaAddressStrategy::List(addrs) => {
                 let mut members = LruCache::new(20);
@@ -1364,42 +1341,35 @@ impl GrpcMetaClient {
             .map_err(RpcError::TransportError)
     }
 
-    pub(crate) async fn try_build_rpc_channel(
-        addrs: Vec<String>,
-        retry_strategy: impl Iterator<Item = Duration>,
-    ) -> Result<(Channel, String)> {
+    pub(crate) async fn try_build_rpc_channel(addrs: Vec<String>) -> Result<(Channel, String)> {
         let endpoints: Vec<_> = addrs
             .into_iter()
             .map(|addr| Self::addr_to_endpoint(addr.clone()).map(|endpoint| (endpoint, addr)))
             .try_collect()?;
 
-        let channel = tokio_retry::Retry::spawn(retry_strategy, || async {
-            tracing::info!("connecting to channel");
+        tracing::info!("connecting to channel");
 
-            let endpoints = endpoints.clone();
+        let endpoints = endpoints.clone();
 
-            for (endpoint, addr) in endpoints {
-                match Self::connect_to_endpoint(endpoint).await {
-                    Ok(channel) => {
-                        tracing::info!("Connect to meta server {} successfully", addr);
-                        return Ok((channel, addr));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to connect to meta server {}, trying again: {}",
-                            addr,
-                            e
-                        )
-                    }
+        for (endpoint, addr) in endpoints {
+            match Self::connect_to_endpoint(endpoint).await {
+                Ok(channel) => {
+                    tracing::info!("Connect to meta server {} successfully", addr);
+                    return Ok((channel, addr));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to connect to meta server {}, trying again: {}",
+                        addr,
+                        e
+                    )
                 }
             }
+        }
 
-            Err(RpcError::Internal(anyhow!(
-                "Failed to connect to meta server"
-            )))
-        })
-        .await?;
-        Ok(channel)
+        Err(RpcError::Internal(anyhow!(
+            "Failed to connect to meta server"
+        )))
     }
 
     async fn connect_to_endpoint(endpoint: Endpoint) -> Result<Channel> {
@@ -1412,34 +1382,17 @@ impl GrpcMetaClient {
             .map_err(RpcError::TransportError)
     }
 
-    pub(crate) fn retry_strategy_for_member_init() -> impl Iterator<Item = Duration> {
-        ExponentialBackoff::from_millis(Self::CONN_RETRY_BASE_INTERVAL_MS)
-            .max_delay(Duration::from_millis(Self::CONN_RETRY_MAX_INTERVAL_MS))
-            .take(70)
-    }
+    pub(crate) fn retry_strategy_for_init(high_bound: Duration) -> impl Iterator<Item = Duration> {
+        let iter = ExponentialBackoff::from_millis(Self::INIT_RETRY_BASE_INTERVAL_MS)
+            .max_delay(Duration::from_millis(Self::INIT_RETRY_MAX_INTERVAL_MS))
+            .map(jitter);
 
-    pub(crate) fn retry_strategy_for_member_discovery() -> impl Iterator<Item = Duration> {
-        ExponentialBackoff::from_millis(Self::MEMBER_DISCOVERY_RETRY_BASE_INTERVAL_MS)
-            .max_delay(Duration::from_millis(
-                Self::MEMBER_DISCOVERY_RETRY_MAX_INTERVAL_MS,
-            ))
-            .map(jitter)
-            .take(Self::MEMBER_DISCOVERY_RETRY_MAX_ATTEMPTS)
-    }
+        let mut sum = Duration::default();
 
-    /// Return retry strategy for retrying meta requests.
-    pub fn retry_strategy_for_request_init() -> impl Iterator<Item = Duration> {
-        ExponentialBackoff::from_millis(Self::REQUEST_RETRY_BASE_INTERVAL_MS)
-            .max_delay(Duration::from_millis(Self::REQUEST_RETRY_MAX_INTERVAL_MS))
-            .take(Self::REQUEST_RETRY_MAX_ATTEMPTS)
-    }
-
-    /// Return retry strategy for retrying meta requests.
-    pub fn retry_strategy_for_request() -> impl Iterator<Item = Duration> {
-        ExponentialBackoff::from_millis(Self::REQUEST_RETRY_BASE_INTERVAL_MS)
-            .max_delay(Duration::from_millis(Self::REQUEST_RETRY_MAX_INTERVAL_MS))
-            .map(jitter)
-            .take(Self::REQUEST_RETRY_MAX_ATTEMPTS)
+        iter.take_while(move |duration| {
+            sum += *duration;
+            sum < high_bound + *duration
+        })
     }
 }
 
