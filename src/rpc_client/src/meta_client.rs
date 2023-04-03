@@ -18,7 +18,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use either::Either;
 use futures::stream::BoxStream;
@@ -211,7 +211,7 @@ impl MetaClient {
         ));
 
         let init_result: Result<_> = tokio_retry::Retry::spawn(retry_strategy, || async {
-            let grpc_meta_client = GrpcMetaClient::new(&addr_strategy).await?;
+            let grpc_meta_client = GrpcMetaClient::new(&addr_strategy).await.context("create meta client failed")?;
 
             let add_worker_resp = grpc_meta_client
                 .add_worker_node(AddWorkerNodeRequest {
@@ -1310,6 +1310,8 @@ impl GrpcMetaClient {
             core: Arc::new(RwLock::new(GrpcMetaClientCore::new(channel))),
         };
 
+        client.force_refresh_leader().await?;
+
         let meta_member_client = client.core.read().await.meta_member_client.clone();
         let members = match strategy {
             MetaAddressStrategy::LoadBalance(_) => Either::Left(meta_member_client),
@@ -1327,10 +1329,6 @@ impl GrpcMetaClient {
         client
             .start_meta_member_monitor(addr, members, force_refresh_receiver)
             .await?;
-
-        if let Err(e) = client.force_refresh_leader().await {
-            tracing::warn!("force refresh leader failed {}, init leader may failed", e);
-        }
 
         Ok(client)
     }
