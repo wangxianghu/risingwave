@@ -412,7 +412,7 @@ impl HummockReadVersion {
 
                     self.staging.imm.push_front(imm)
                 }
-                StagingData::Sst(staging_sst) => {
+                StagingData::Sst(mut staging_sst) => {
                     // The following properties must be ensured:
                     // 1) self.staging.imm is sorted by imm id descendingly
                     // 2) staging_sst.imm_ids preserves the imm id partial
@@ -455,6 +455,13 @@ impl HummockReadVersion {
                             assert_eq!(clear_imm_id, item.batch_id());
                             self.staging.imm.pop_back();
                         }
+                        staging_sst.sstable_infos.retain(|local_sstable_info| {
+                            local_sstable_info
+                                .sst_info
+                                .get_table_ids()
+                                .binary_search(&self.table_id.table_id)
+                                .is_ok()
+                        });
                         self.staging.sst.push_front(staging_sst);
                     }
                 }
@@ -484,7 +491,6 @@ impl HummockReadVersion {
         self.committed = committed_version;
         let new_max_committed_epoch = self.committed().max_committed_epoch();
 
-        let table_id = self.table_id;
         let mut min_acceptable_staging_epoch = old_max_committed_epoch + 1;
         if let Some(pruned_version) = self.committed_index.as_deref() && pruned_version.scope() > min_acceptable_staging_epoch {
             min_acceptable_staging_epoch = pruned_version.scope();
@@ -499,22 +505,14 @@ impl HummockReadVersion {
             if newest_epoch > new_max_committed_epoch {
                 true
             } else {
-                if newest_epoch >= min_acceptable_staging_epoch {
-                    cleaned_ssts.push((
-                        newest_epoch,
-                        sst.sstable_infos()
-                            .iter()
-                            .filter(|local_sstable_info| {
-                                local_sstable_info
-                                    .sst_info
-                                    .get_table_ids()
-                                    .binary_search(&table_id.table_id)
-                                    .is_ok()
-                            })
-                            .map(|local_sstable_info| local_sstable_info.sst_info.get_object_id())
-                            .collect_vec(),
-                    ));
-                }
+                assert!(newest_epoch >= min_acceptable_staging_epoch);
+                cleaned_ssts.push((
+                    newest_epoch,
+                    sst.sstable_infos()
+                        .iter()
+                        .map(|local_sstable_info| local_sstable_info.sst_info.get_object_id())
+                        .collect_vec(),
+                ));
                 false
             }
         });
