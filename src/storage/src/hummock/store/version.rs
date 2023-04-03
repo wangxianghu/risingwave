@@ -28,7 +28,9 @@ use risingwave_hummock_sdk::key::{
     bound_table_key_range, FullKey, TableKey, TableKeyRange, UserKey,
 };
 use risingwave_hummock_sdk::key_range::KeyRangeCommon;
-use risingwave_hummock_sdk::{HummockEpoch, HummockSstableObjectId, LocalSstableInfo};
+use risingwave_hummock_sdk::{
+    HummockEpoch, HummockSstableObjectId, HummockSubLevelId, LocalSstableInfo,
+};
 use risingwave_pb::hummock::{HummockVersionDelta, Level, LevelType, SstableInfo};
 use sync_point::sync_point;
 
@@ -195,7 +197,7 @@ pub struct PrunedVersion {
     table_id: TableId,
     scope: HummockEpoch,
     /// mapping from table view position to `(sub_level_id, (SST positions, SST object ids))`
-    levels: Vec<(HummockEpoch, PrunedVersionLevel)>,
+    levels: Vec<(HummockSubLevelId, PrunedVersionLevel)>,
 }
 
 impl PrunedVersion {
@@ -214,7 +216,7 @@ impl PrunedVersion {
     fn get_indices(
         &self,
         table_view_position: usize,
-        sub_level_id: HummockEpoch,
+        sub_level_id: HummockSubLevelId,
     ) -> Option<&Vec<usize>> {
         if sub_level_id >= self.scope {
             Some(&self.levels[table_view_position].1 .0)
@@ -724,35 +726,55 @@ impl HummockVersionReader {
             match level.level_type() {
                 LevelType::Overlapping | LevelType::Unspecified => {
                     // TODO: Use an elegant way to avoid duplicate code.
-                    let full_idx = (0..level.get_table_infos().len()).collect_vec();
-                    let sst_indices = committed_index
-                        .as_deref()
-                        .and_then(|pruned_version| {
-                            pruned_version
-                                .get_indices(table_view_position, level.get_sub_level_id())
-                        })
-                        .unwrap_or(&full_idx);
+                    let sst_indices = committed_index.as_deref().and_then(|pruned_version| {
+                        pruned_version.get_indices(table_view_position, level.get_sub_level_id())
+                    });
 
                     let single_table_key_range = table_key.clone()..=table_key.clone();
-                    let sstable_infos = prune_overlapping_ssts(
-                        &level.table_infos,
-                        sst_indices,
-                        read_options.table_id,
-                        &single_table_key_range,
-                    );
-                    for sstable_info in sstable_infos {
-                        stats_guard.local_stats.sub_iter_count += 1;
-                        if let Some(v) = get_from_sstable_info(
-                            self.sstable_store.clone(),
-                            sstable_info,
-                            full_key.to_ref(),
-                            &read_options,
-                            dist_key_hash,
-                            &mut stats_guard.local_stats,
-                        )
-                        .await?
-                        {
-                            return Ok(v.into_user_value());
+
+                    if let Some(sst_indices) = sst_indices {
+                        let sstable_infos = prune_overlapping_ssts(
+                            sst_indices
+                                .iter()
+                                .map(|sst_index| &level.table_infos[*sst_index]),
+                            read_options.table_id,
+                            &single_table_key_range,
+                        );
+                        for sstable_info in sstable_infos {
+                            stats_guard.local_stats.sub_iter_count += 1;
+                            if let Some(v) = get_from_sstable_info(
+                                self.sstable_store.clone(),
+                                sstable_info,
+                                full_key.to_ref(),
+                                &read_options,
+                                dist_key_hash,
+                                &mut stats_guard.local_stats,
+                            )
+                            .await?
+                            {
+                                return Ok(v.into_user_value());
+                            }
+                        }
+                    } else {
+                        let sstable_infos = prune_overlapping_ssts(
+                            level.table_infos.iter(),
+                            read_options.table_id,
+                            &single_table_key_range,
+                        );
+                        for sstable_info in sstable_infos {
+                            stats_guard.local_stats.sub_iter_count += 1;
+                            if let Some(v) = get_from_sstable_info(
+                                self.sstable_store.clone(),
+                                sstable_info,
+                                full_key.to_ref(),
+                                &read_options,
+                                dist_key_hash,
+                                &mut stats_guard.local_stats,
+                            )
+                            .await?
+                            {
+                                return Ok(v.into_user_value());
+                            }
                         }
                     }
                 }
@@ -884,21 +906,26 @@ impl HummockVersionReader {
                 fetch_meta_reqs.push((level.level_type, fetch_meta_req));
             } else {
                 // TODO: Use an elegant way to avoid duplicate code.
-                let full_idx = (0..level.get_table_infos().len()).collect_vec();
-                let sst_indices = committed_index
-                    .as_deref()
-                    .and_then(|pruned_version| {
-                        pruned_version.get_indices(table_view_position, level.get_sub_level_id())
-                    })
-                    .unwrap_or(&full_idx);
+                let sst_indices = committed_index.as_deref().and_then(|pruned_version| {
+                    pruned_version.get_indices(table_view_position, level.get_sub_level_id())
+                });
 
                 // Overlapping
-                let fetch_meta_req = prune_overlapping_ssts_rev(
-                    &level.table_infos,
-                    sst_indices,
-                    read_options.table_id,
-                    &table_key_range,
-                );
+                let fetch_meta_req = if let Some(sst_indices) = sst_indices {
+                    prune_overlapping_ssts_rev(
+                        sst_indices
+                            .iter()
+                            .map(|sst_index| &level.table_infos[*sst_index]),
+                        read_options.table_id,
+                        &table_key_range,
+                    )
+                } else {
+                    prune_overlapping_ssts_rev(
+                        level.table_infos.iter(),
+                        read_options.table_id,
+                        &table_key_range,
+                    )
+                };
                 if !fetch_meta_req.is_empty() {
                     fetch_meta_reqs.push((level.level_type, fetch_meta_req));
                 }
@@ -1089,25 +1116,35 @@ impl HummockVersionReader {
                 match level.level_type() {
                     LevelType::Overlapping | LevelType::Unspecified => {
                         // TODO: Use an elegant way to avoid duplicate code.
-                        let full_idx = (0..level.get_table_infos().len()).collect_vec();
-                        let sst_indices = committed_index
-                            .as_deref()
-                            .and_then(|pruned_version| {
-                                pruned_version
-                                    .get_indices(table_view_position, level.get_sub_level_id())
-                            })
-                            .unwrap_or(&full_idx);
+                        let sst_indices = committed_index.as_deref().and_then(|pruned_version| {
+                            pruned_version
+                                .get_indices(table_view_position, level.get_sub_level_id())
+                        });
 
-                        if prune_overlapping_ssts(
-                            &level.table_infos,
-                            sst_indices,
-                            table_id,
-                            &table_key_range,
-                        )
-                        .next()
-                        .is_some()
-                        {
-                            return Ok(true);
+                        if let Some(sst_indices) = sst_indices {
+                            if prune_overlapping_ssts(
+                                sst_indices
+                                    .iter()
+                                    .map(|sst_index| &level.table_infos[*sst_index]),
+                                table_id,
+                                &table_key_range,
+                            )
+                            .next()
+                            .is_some()
+                            {
+                                return Ok(true);
+                            }
+                        } else {
+                            if prune_overlapping_ssts(
+                                level.table_infos.iter(),
+                                table_id,
+                                &table_key_range,
+                            )
+                            .next()
+                            .is_some()
+                            {
+                                return Ok(true);
+                            }
                         }
                     }
                     LevelType::Nonoverlapping => {
@@ -1149,32 +1186,49 @@ impl HummockVersionReader {
             match level.level_type() {
                 LevelType::Overlapping | LevelType::Unspecified => {
                     // TODO: Use an elegant way to avoid duplicate code.
-                    let full_idx = (0..level.get_table_infos().len()).collect_vec();
-                    let sst_indices = committed_index
-                        .as_deref()
-                        .and_then(|pruned_version| {
-                            pruned_version
-                                .get_indices(table_view_position, level.get_sub_level_id())
-                        })
-                        .unwrap_or(&full_idx);
+                    let sst_indices = committed_index.as_deref().and_then(|pruned_version| {
+                        pruned_version.get_indices(table_view_position, level.get_sub_level_id())
+                    });
 
-                    let sstable_infos = prune_overlapping_ssts(
-                        &level.table_infos,
-                        sst_indices,
-                        table_id,
-                        &table_key_range,
-                    );
-                    for sstable_info in sstable_infos {
-                        stats_guard.local_stats.may_exist_check_sstable_count += 1;
-                        if hit_sstable_bloom_filter(
-                            self.sstable_store
-                                .sstable(sstable_info, &mut stats_guard.local_stats)
-                                .await?
-                                .value(),
-                            bloom_filter_prefix_hash,
-                            &mut stats_guard.local_stats,
-                        ) {
-                            return Ok(true);
+                    if let Some(sst_indices) = sst_indices {
+                        let sstable_infos = prune_overlapping_ssts(
+                            sst_indices
+                                .iter()
+                                .map(|sst_index| &level.table_infos[*sst_index]),
+                            table_id,
+                            &table_key_range,
+                        );
+                        for sstable_info in sstable_infos {
+                            stats_guard.local_stats.may_exist_check_sstable_count += 1;
+                            if hit_sstable_bloom_filter(
+                                self.sstable_store
+                                    .sstable(sstable_info, &mut stats_guard.local_stats)
+                                    .await?
+                                    .value(),
+                                bloom_filter_prefix_hash,
+                                &mut stats_guard.local_stats,
+                            ) {
+                                return Ok(true);
+                            }
+                        }
+                    } else {
+                        let sstable_infos = prune_overlapping_ssts(
+                            level.table_infos.iter(),
+                            table_id,
+                            &table_key_range,
+                        );
+                        for sstable_info in sstable_infos {
+                            stats_guard.local_stats.may_exist_check_sstable_count += 1;
+                            if hit_sstable_bloom_filter(
+                                self.sstable_store
+                                    .sstable(sstable_info, &mut stats_guard.local_stats)
+                                    .await?
+                                    .value(),
+                                bloom_filter_prefix_hash,
+                                &mut stats_guard.local_stats,
+                            ) {
+                                return Ok(true);
+                            }
                         }
                     }
                 }

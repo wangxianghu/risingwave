@@ -124,26 +124,21 @@ pub(crate) fn search_sst_idx(ssts: &[SstableInfo], key: UserKey<&[u8]>) -> usize
 /// Prune overlapping SSTs that does not overlap with a specific key range or does not overlap with
 /// a specific table id. Returns the sst ids after pruning.
 pub fn prune_overlapping_ssts<'a, R, B>(
-    ssts: &'a [SstableInfo],
-    indices: &'a [usize],
+    ssts: impl Iterator<Item = &'a SstableInfo>,
     table_id: TableId,
     table_key_range: &'a R,
-) -> impl DoubleEndedIterator<Item = &'a SstableInfo>
+) -> impl Iterator<Item = &'a SstableInfo>
 where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
-    indices
-        .iter()
-        .map(|index| &ssts[*index])
-        .filter(move |info| filter_single_sst(info, table_id, table_key_range))
+    ssts.filter(move |info| filter_single_sst(info, table_id, table_key_range))
 }
 
 /// Prune overlapping SSTs that does not overlap with a specific key range or does not overlap with
 /// a specific table id. Returns the sst ids after pruning with reverse order in a collection.
 pub fn prune_overlapping_ssts_rev<'a, R, B>(
-    ssts: &'a [SstableInfo],
-    indices: &[usize],
+    ssts: impl DoubleEndedIterator<Item = &'a SstableInfo>,
     table_id: TableId,
     table_key_range: &'a R,
 ) -> Vec<&'a SstableInfo>
@@ -151,10 +146,7 @@ where
     R: RangeBounds<TableKey<B>>,
     B: AsRef<[u8]> + EmptySliceRef,
 {
-    indices
-        .iter()
-        .map(|index| &ssts[*index])
-        .filter(move |info| filter_single_sst(info, table_id, table_key_range))
+    ssts.filter(move |info| filter_single_sst(info, table_id, table_key_range))
         .rev()
         .collect_vec()
 }
