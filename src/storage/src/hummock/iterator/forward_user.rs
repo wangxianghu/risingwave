@@ -104,11 +104,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
                 // handle delete operation
                 match self.iterator.value() {
                     HummockValue::Put(val) => {
-                        while self.delete_range_iter.is_valid()
-                            && self.delete_range_iter.next_user_key().le(key)
-                        {
-                            self.delete_range_iter.next();
-                        }
+                        self.delete_range_iter.next_until(key);
                         if self.delete_range_iter.current_epoch() >= epoch {
                             self.stats.skip_delete_key_count += 1;
                         } else {

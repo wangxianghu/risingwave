@@ -193,6 +193,14 @@ impl ForwardMergeRangeIterator {
     }
 }
 
+impl ForwardMergeRangeIterator {
+    pub(super) fn next_until(&mut self, target_user_key: &UserKey<&[u8]>) {
+        while self.is_valid() && self.next_user_key().le(target_user_key) {
+            self.next();
+        }
+    }
+}
+
 impl DeleteRangeIterator for ForwardMergeRangeIterator {
     fn next_user_key(&self) -> UserKey<&[u8]> {
         self.heap.peek().unwrap().next_user_key()
