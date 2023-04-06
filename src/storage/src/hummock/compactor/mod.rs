@@ -43,7 +43,7 @@ use risingwave_hummock_sdk::compact::compact_task_to_string;
 use risingwave_hummock_sdk::filter_key_extractor::FilterKeyExtractorImpl;
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::table_stats::{add_table_stats_map, TableStats, TableStatsMap};
-use risingwave_hummock_sdk::LocalSstableInfo;
+use risingwave_hummock_sdk::{HummockEpoch, LocalSstableInfo};
 use risingwave_pb::hummock::compact_task::TaskStatus;
 use risingwave_pb::hummock::subscribe_compact_tasks_response::Task;
 use risingwave_pb::hummock::{
@@ -58,6 +58,7 @@ use tokio::task::JoinHandle;
 pub use self::compaction_utils::{CompactionStatistics, RemoteBuilderFactory, TaskConfig};
 use self::task_progress::TaskProgress;
 use super::multi_builder::CapacitySplitTableBuilder;
+use super::value::HummockValue;
 use super::{CompactionDeleteRanges, HummockResult, SstableBuilderOptions, XorFilterBuilder};
 use crate::hummock::compactor::compaction_utils::{
     build_multi_compaction_filter, estimate_state_for_compaction, generate_splits,
@@ -554,6 +555,7 @@ impl Compactor {
 
         let mut last_key = FullKey::default();
         let mut watermark_can_see_last_key = false;
+        let mut user_key_last_delete = HummockEpoch::MAX;
         let mut local_stats = StoreLocalStatistic::default();
 
         // Keep table stats changes due to dropping KV.
@@ -562,10 +564,10 @@ impl Compactor {
         let mut last_table_id = None;
         let mut compaction_statistics = CompactionStatistics::default();
         while iter.is_valid() {
-            let iter_key = iter.key();
+            let mut iter_key = iter.key();
             compaction_statistics.iter_total_key_counts += 1;
 
-            let is_new_user_key =
+            let mut is_new_user_key =
                 last_key.is_empty() || iter_key.user_key != last_key.user_key.as_ref();
 
             let mut drop = false;
@@ -577,6 +579,7 @@ impl Compactor {
                 }
                 last_key.set(iter_key);
                 watermark_can_see_last_key = false;
+                user_key_last_delete = HummockEpoch::MAX;
                 if value.is_delete() {
                     local_stats.skip_delete_key_count += 1;
                 }
@@ -634,9 +637,22 @@ impl Compactor {
                 continue;
             }
 
+            if matches!(value, HummockValue::Delete) {
+                user_key_last_delete = epoch;
+            } else if earliest_delete_epoch < user_key_last_delete {
+                user_key_last_delete = earliest_delete_epoch;
+
+                iter_key.epoch = earliest_delete_epoch;
+                sst_builder
+                    .add_full_key(iter_key, HummockValue::Delete, is_new_user_key)
+                    .await?;
+                iter_key.epoch = epoch;
+                is_new_user_key = false;
+            }
+
             // Don't allow two SSTs to share same user key
             sst_builder
-                .add_full_key(iter_key, earliest_delete_epoch, value, is_new_user_key)
+                .add_full_key(iter_key, value, is_new_user_key)
                 .await?;
 
             iter.next().await?;
