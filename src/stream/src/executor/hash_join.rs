@@ -181,6 +181,8 @@ struct JoinSide<K: HashKey, S: StateStore> {
     /// The second field indicates that whether the column is required less than the
     /// the corresponding column in the counterpart join side in the band join condition.
     input2inequality_index: Vec<Vec<(usize, bool)>>,
+    /// Some fields which are required non null to match due to inequalities.
+    non_null_fields: Vec<usize>,
     /// (i, j) in this `Vec` means that state data in this join side can be cleaned if the value of
     /// its ith column is less than the synthetic watermark of the jth band join condition.
     state_clean_columns: Vec<(usize, usize)>,
@@ -202,6 +204,38 @@ impl<K: HashKey, S: StateStore> std::fmt::Debug for JoinSide<K, S> {
 }
 
 impl<K: HashKey, S: StateStore> JoinSide<K, S> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        ht: JoinHashMap<K, S>,
+        join_key_indices: Vec<usize>,
+        deduped_pk_indices: Vec<usize>,
+        all_data_types: Vec<DataType>,
+        start_pos: usize,
+        i2o_mapping: Vec<(usize, usize)>,
+        i2o_mapping_indexed: MultiMap<usize, usize>,
+        input2inequality_index: Vec<Vec<(usize, bool)>>,
+        state_clean_columns: Vec<(usize, usize)>,
+        need_degree_table: bool,
+    ) -> Self {
+        let non_null_fields = input2inequality_index
+            .iter()
+            .positions(|inequalities| !inequalities.is_empty())
+            .collect_vec();
+        Self {
+            ht,
+            join_key_indices,
+            deduped_pk_indices,
+            all_data_types,
+            start_pos,
+            i2o_mapping,
+            i2o_mapping_indexed,
+            input2inequality_index,
+            non_null_fields,
+            state_clean_columns,
+            need_degree_table,
+        }
+    }
+
     // WARNING: Please do not call this until we implement it.、
     #[expect(dead_code)]
     fn is_dirty(&self) -> bool {
@@ -620,8 +654,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             input_r: Some(input_r),
             actual_output_data_types,
             schema: actual_schema,
-            side_l: JoinSide {
-                ht: JoinHashMap::new(
+            side_l: JoinSide::new(
+                JoinHashMap::new(
                     watermark_epoch.clone(),
                     join_key_data_types_l,
                     state_all_data_types_l.clone(),
@@ -637,18 +671,18 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     ctx.id,
                     "left",
                 ),
-                join_key_indices: join_key_indices_l,
-                all_data_types: state_all_data_types_l,
-                i2o_mapping: left_to_output,
-                i2o_mapping_indexed: l2o_indexed,
-                input2inequality_index: l2inequality_index,
-                state_clean_columns: l_state_clean_columns,
-                deduped_pk_indices: state_pk_indices_l,
-                start_pos: 0,
-                need_degree_table: need_degree_table_l,
-            },
-            side_r: JoinSide {
-                ht: JoinHashMap::new(
+                join_key_indices_l,
+                state_pk_indices_l,
+                state_all_data_types_l,
+                0,
+                left_to_output,
+                l2o_indexed,
+                l2inequality_index,
+                l_state_clean_columns,
+                need_degree_table_l,
+            ),
+            side_r: JoinSide::new(
+                JoinHashMap::new(
                     watermark_epoch,
                     join_key_data_types_r,
                     state_all_data_types_r.clone(),
@@ -664,16 +698,16 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     ctx.id,
                     "right",
                 ),
-                join_key_indices: join_key_indices_r,
-                all_data_types: state_all_data_types_r,
-                deduped_pk_indices: state_pk_indices_r,
-                start_pos: side_l_column_n,
-                i2o_mapping: right_to_output,
-                i2o_mapping_indexed: r2o_indexed,
-                input2inequality_index: r2inequality_index,
-                state_clean_columns: r_state_clean_columns,
-                need_degree_table: need_degree_table_r,
-            },
+                join_key_indices_r,
+                state_pk_indices_r,
+                state_all_data_types_r,
+                side_l_column_n,
+                right_to_output,
+                r2o_indexed,
+                r2inequality_index,
+                r_state_clean_columns,
+                need_degree_table_r,
+            ),
             pk_indices,
             cond,
             inequality_pairs,
@@ -1014,8 +1048,15 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         for ((op, row), key) in chunk.rows().zip_eq_debug(keys.iter()) {
             Self::evict_cache(side_update, side_match, cnt_rows_received);
 
-            let matched_rows: Option<HashValueType> =
-                Self::hash_eq_match(key, &mut side_match.ht).await?;
+            let matched_rows: Option<HashValueType> = if side_update
+                .non_null_fields
+                .iter()
+                .all(|column_idx| unsafe { row.datum_at_unchecked(*column_idx).is_some() })
+            {
+                Self::hash_eq_match(key, &mut side_match.ht).await?
+            } else {
+                None
+            };
             match op {
                 Op::Insert | Op::UpdateInsert => {
                     let mut degree = 0;
