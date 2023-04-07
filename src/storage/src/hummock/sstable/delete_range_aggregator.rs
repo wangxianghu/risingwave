@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::{Ordering, Reverse};
-use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -99,49 +99,9 @@ pub struct CompactionDeleteRanges {
     gc_delete_keys: bool,
 }
 
-pub struct RangeTombstonesCollector {
-    range_tombstone_list: Vec<DeleteRangeTombstone>,
-    watermark: u64,
-    gc_delete_keys: bool,
-}
-
 impl DeleteRangeAggregatorBuilder {
     pub fn add_tombstone(&mut self, data: Vec<DeleteRangeTombstone>) {
         self.delete_tombstones.extend(data);
-    }
-
-    pub fn build(self, watermark: u64, gc_delete_keys: bool) -> Arc<RangeTombstonesCollector> {
-        // sort tombstones by start-key.
-        let mut tombstone_index = BinaryHeap::<Reverse<DeleteRangeTombstone>>::default();
-        let mut sorted_tombstones: Vec<DeleteRangeTombstone> = vec![];
-        for tombstone in self.delete_tombstones {
-            tombstone_index.push(Reverse(tombstone));
-        }
-        while let Some(Reverse(tombstone)) = tombstone_index.pop() {
-            for last in sorted_tombstones.iter_mut().rev() {
-                if last.end_user_key.gt(&tombstone.end_user_key) {
-                    let mut new_tombstone = last.clone();
-                    new_tombstone.start_user_key = tombstone.end_user_key.clone();
-                    last.end_user_key = tombstone.end_user_key.clone();
-                    tombstone_index.push(Reverse(new_tombstone));
-                } else {
-                    break;
-                }
-            }
-            sorted_tombstones.push(tombstone);
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            check_sorted_tombstone(&sorted_tombstones);
-        }
-
-        sorted_tombstones.sort();
-        Arc::new(RangeTombstonesCollector {
-            range_tombstone_list: sorted_tombstones,
-            gc_delete_keys,
-            watermark,
-        })
     }
 
     /// Assume that watermark1 is 5, watermark2 is 7, watermark3 is 11, delete ranges
@@ -232,18 +192,6 @@ impl DeleteRangeAggregatorBuilder {
     }
 }
 
-#[cfg(debug_assertions)]
-fn check_sorted_tombstone(sorted_tombstones: &[DeleteRangeTombstone]) {
-    for idx in 1..sorted_tombstones.len() {
-        assert!(sorted_tombstones[idx]
-            .start_user_key
-            .ge(&sorted_tombstones[idx - 1].start_user_key));
-        assert!(sorted_tombstones[idx]
-            .end_user_key
-            .ge(&sorted_tombstones[idx - 1].end_user_key));
-    }
-}
-
 impl CompactionDeleteRanges {
     pub(crate) fn for_test() -> Self {
         Self {
@@ -325,63 +273,6 @@ impl CompactionDeleteRanges {
                 .map(|(_index, tombstone)| tombstone),
         );
         ret
-    }
-}
-
-impl RangeTombstonesCollector {
-    pub fn for_test() -> Self {
-        Self {
-            range_tombstone_list: vec![],
-            gc_delete_keys: false,
-            watermark: 0,
-        }
-    }
-
-    // split ranges to make sure they locate in [smallest_user_key, largest_user_key)
-    pub fn get_tombstone_between(
-        &self,
-        smallest_user_key: &UserKey<&[u8]>,
-        largest_user_key: &UserKey<&[u8]>,
-    ) -> Vec<DeleteRangeTombstone> {
-        let mut delete_ranges: Vec<DeleteRangeTombstone> = vec![];
-        for tombstone in &self.range_tombstone_list {
-            if !largest_user_key.is_empty()
-                && tombstone.start_user_key.as_ref().ge(largest_user_key)
-            {
-                continue;
-            }
-
-            if !smallest_user_key.is_empty()
-                && tombstone.end_user_key.as_ref().le(smallest_user_key)
-            {
-                continue;
-            }
-
-            if tombstone.sequence <= self.watermark {
-                if self.gc_delete_keys {
-                    continue;
-                }
-                if let Some(last) = delete_ranges.last() {
-                    if last.start_user_key.eq(&tombstone.start_user_key)
-                        && last.end_user_key.eq(&tombstone.end_user_key)
-                        && last.sequence <= self.watermark
-                    {
-                        assert!(last.sequence > tombstone.sequence);
-                        continue;
-                    }
-                }
-            }
-
-            let mut ret = tombstone.clone();
-            if !smallest_user_key.is_empty() && smallest_user_key.gt(&ret.start_user_key.as_ref()) {
-                ret.start_user_key = smallest_user_key.to_vec();
-            }
-            if !largest_user_key.is_empty() && largest_user_key.lt(&ret.end_user_key.as_ref()) {
-                ret.end_user_key = largest_user_key.to_vec();
-            }
-            delete_ranges.push(ret);
-        }
-        delete_ranges
     }
 }
 

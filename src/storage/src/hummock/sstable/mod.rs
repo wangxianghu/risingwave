@@ -53,7 +53,7 @@ mod utils;
 
 pub use delete_range_aggregator::{
     get_min_delete_range_epoch_from_sstable, CompactionDeleteRanges, DeleteRangeAggregatorBuilder,
-    RangeTombstonesCollector, SstableDeleteRangeIterator,
+    SstableDeleteRangeIterator,
 };
 pub use filter::FilterBuilder;
 pub use sstable_object_id_manager::*;
