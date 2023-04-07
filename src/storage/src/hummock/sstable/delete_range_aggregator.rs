@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use risingwave_hummock_sdk::key::{FullKey, UserKey};
+use risingwave_hummock_sdk::key::UserKey;
 use risingwave_hummock_sdk::HummockEpoch;
 
 use super::DeleteRangeTombstone;
@@ -494,59 +494,79 @@ pub fn get_min_delete_range_epoch_from_sstable(
     }
 }
 
-pub fn get_delete_range_epoch_from_sstable(
-    table: &Sstable,
-    full_key: &FullKey<&[u8]>,
-) -> Option<HummockEpoch> {
-    if table.meta.range_tombstone_list.is_empty() {
-        return None;
-    }
-    let watermark = full_key.epoch;
-    let mut idx = table
-        .meta
-        .range_tombstone_list
-        .partition_point(|tombstone| tombstone.end_user_key.as_ref().le(&full_key.user_key));
-    if idx >= table.meta.range_tombstone_list.len() {
-        return None;
-    }
-    let mut epoch = None;
-    while idx < table.meta.range_tombstone_list.len()
-        && table.meta.range_tombstone_list[idx]
-            .start_user_key
-            .as_ref()
-            .le(&full_key.user_key)
-    {
-        let sequence = table.meta.range_tombstone_list[idx].sequence;
-        if sequence > watermark {
-            idx += 1;
-            continue;
-        }
-        if epoch
-            .as_ref()
-            .map(|epoch| *epoch < sequence)
-            .unwrap_or(true)
-        {
-            epoch = Some(sequence);
-        }
-        idx += 1;
-    }
-    epoch
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use rand::Rng;
     use risingwave_common::catalog::TableId;
-    use risingwave_hummock_sdk::key::TableKey;
 
     use super::*;
     use crate::hummock::iterator::test_utils::{
-        gen_iterator_test_sstable_with_range_tombstones, iterator_test_key_of_epoch,
+        gen_iterator_test_sstable_with_range_tombstones, iterator_test_user_key_of,
         mock_sstable_store,
     };
     use crate::hummock::test_utils::test_user_key;
+
+    #[test]
+    pub fn test_compaction_delete_range_iterator() {
+        let mut builder = DeleteRangeAggregatorBuilder::default();
+        let table_id = TableId::default();
+        builder.add_tombstone(vec![
+            DeleteRangeTombstone::new(table_id, b"aaaaaa".to_vec(), b"bbbccc".to_vec(), 12),
+            DeleteRangeTombstone::new(table_id, b"aaaaaa".to_vec(), b"bbbddd".to_vec(), 9),
+            DeleteRangeTombstone::new(table_id, b"bbbaab".to_vec(), b"bbbdddf".to_vec(), 6),
+            DeleteRangeTombstone::new(table_id, b"bbbeee".to_vec(), b"eeeeee".to_vec(), 8),
+            DeleteRangeTombstone::new(table_id, b"bbbfff".to_vec(), b"ffffff".to_vec(), 9),
+            DeleteRangeTombstone::new(table_id, b"gggggg".to_vec(), b"hhhhhh".to_vec(), 9),
+        ]);
+        let compaction_delete_ranges = builder.build_for_compaction(10, false);
+        let mut iter = compaction_delete_ranges.iter();
+
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbb").as_ref(), 13),
+            HummockEpoch::MAX
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbb").as_ref(), 11),
+            12
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbb").as_ref(), 8),
+            9
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbbaaa").as_ref(), 8),
+            9
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbbccd").as_ref(), 8),
+            9
+        );
+
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbbddd").as_ref(), 8),
+            HummockEpoch::MAX
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbbeee").as_ref(), 8),
+            8
+        );
+
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"bbbeef").as_ref(), 10),
+            HummockEpoch::MAX
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"eeeeee").as_ref(), 9),
+            9
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"gggggg").as_ref(), 8),
+            9
+        );
+        assert_eq!(
+            iter.earliest_delete_which_can_see_key(&test_user_key(b"hhhhhh").as_ref(), 8),
+            HummockEpoch::MAX
+        );
+    }
 
     #[test]
     pub fn test_delete_range_split() {
@@ -559,8 +579,8 @@ mod tests {
             DeleteRangeTombstone::new(table_id, b"cccc".to_vec(), b"eeee".to_vec(), 12),
             DeleteRangeTombstone::new(table_id, b"eeee".to_vec(), b"ffff".to_vec(), 12),
         ]);
-        let agg = builder.build(10, true);
-        let split_ranges = agg.get_tombstone_between(
+        let compaction_delete_range = builder.build_for_compaction(10, true);
+        let split_ranges = compaction_delete_range.get_tombstone_between(
             &test_user_key(b"bbbb").as_ref(),
             &test_user_key(b"eeeeee").as_ref(),
         );
@@ -582,92 +602,30 @@ mod tests {
             sstable_store,
         )
         .await;
-        let ret = get_delete_range_epoch_from_sstable(
+        let ret = get_min_delete_range_epoch_from_sstable(
             &sstable,
-            &iterator_test_key_of_epoch(0, 200).to_ref(),
+            &iterator_test_user_key_of(0).as_ref(),
         );
-        assert!(ret.is_none());
-        let ret = get_delete_range_epoch_from_sstable(
+        assert_eq!(ret, 300);
+        let ret = get_min_delete_range_epoch_from_sstable(
             &sstable,
-            &iterator_test_key_of_epoch(1, 100).to_ref(),
+            &iterator_test_user_key_of(1).as_ref(),
         );
-        assert!(ret.is_none());
-        let ret = get_delete_range_epoch_from_sstable(
+        assert_eq!(ret, 150);
+        let ret = get_min_delete_range_epoch_from_sstable(
             &sstable,
-            &iterator_test_key_of_epoch(1, 200).to_ref(),
+            &iterator_test_user_key_of(3).as_ref(),
         );
-        assert_eq!(ret, Some(150));
-        let ret = get_delete_range_epoch_from_sstable(
+        assert_eq!(ret, 50);
+        let ret = get_min_delete_range_epoch_from_sstable(
             &sstable,
-            &iterator_test_key_of_epoch(1, 300).to_ref(),
+            &iterator_test_user_key_of(6).as_ref(),
         );
-        assert_eq!(ret, Some(300));
-        let ret = get_delete_range_epoch_from_sstable(
+        assert_eq!(ret, 150);
+        let ret = get_min_delete_range_epoch_from_sstable(
             &sstable,
-            &iterator_test_key_of_epoch(3, 100).to_ref(),
+            &iterator_test_user_key_of(8).as_ref(),
         );
-        assert_eq!(ret, Some(50));
-        let ret = get_delete_range_epoch_from_sstable(
-            &sstable,
-            &iterator_test_key_of_epoch(6, 100).to_ref(),
-        );
-        assert!(ret.is_none());
-        let ret = get_delete_range_epoch_from_sstable(
-            &sstable,
-            &iterator_test_key_of_epoch(6, 200).to_ref(),
-        );
-        assert_eq!(ret, Some(150));
-        let ret = get_delete_range_epoch_from_sstable(
-            &sstable,
-            &iterator_test_key_of_epoch(8, 200).to_ref(),
-        );
-        assert!(ret.is_none());
-    }
-
-    #[test]
-    pub fn test_delete_cut_range() {
-        let mut builder = DeleteRangeAggregatorBuilder::default();
-        let mut rng = rand::thread_rng();
-        let mut origin = vec![];
-        const SEQUENCE_COUNT: HummockEpoch = 5000;
-        for sequence in 1..(SEQUENCE_COUNT + 1) {
-            let left: u64 = rng.gen_range(0..100);
-            let right: u64 = left + rng.gen_range(0..100) + 1;
-            let tombstone = DeleteRangeTombstone::new(
-                TableId::default(),
-                left.to_be_bytes().to_vec(),
-                right.to_be_bytes().to_vec(),
-                sequence,
-            );
-            assert!(tombstone.start_user_key.lt(&tombstone.end_user_key));
-            origin.push(tombstone);
-        }
-        builder.add_tombstone(origin.clone());
-        let agg = builder.build(0, false);
-        let split_ranges = agg.get_tombstone_between(
-            &UserKey::new(TableId::default(), TableKey(b"")),
-            &UserKey::new(TableId::default(), TableKey(b"")),
-        );
-        assert!(split_ranges.len() > origin.len());
-        let mut sequence_index: HashMap<u64, Vec<DeleteRangeTombstone>> = HashMap::default();
-        for tombstone in split_ranges {
-            let data = sequence_index.entry(tombstone.sequence).or_default();
-            data.push(tombstone);
-        }
-        assert_eq!(SEQUENCE_COUNT, sequence_index.len() as u64);
-        for (sequence, mut data) in sequence_index {
-            data.sort();
-            for i in 1..data.len() {
-                assert_eq!(data[i - 1].end_user_key, data[i].start_user_key);
-            }
-            assert_eq!(
-                data[0].start_user_key,
-                origin[sequence as usize - 1].start_user_key
-            );
-            assert_eq!(
-                data.last().unwrap().end_user_key,
-                origin[sequence as usize - 1].end_user_key
-            );
-        }
+        assert_eq!(ret, HummockEpoch::MAX);
     }
 }
