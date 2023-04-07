@@ -555,7 +555,7 @@ impl Compactor {
 
         let mut last_key = FullKey::default();
         let mut watermark_can_see_last_key = false;
-        let mut user_key_last_delete = HummockEpoch::MAX;
+        let mut user_key_last_delete_epoch = HummockEpoch::MAX;
         let mut local_stats = StoreLocalStatistic::default();
 
         // Keep table stats changes due to dropping KV.
@@ -579,7 +579,7 @@ impl Compactor {
                 }
                 last_key.set(iter_key);
                 watermark_can_see_last_key = false;
-                user_key_last_delete = HummockEpoch::MAX;
+                user_key_last_delete_epoch = HummockEpoch::MAX;
                 if value.is_delete() {
                     local_stats.skip_delete_key_count += 1;
                 }
@@ -596,7 +596,8 @@ impl Compactor {
                 last_table_id = Some(last_key.user_key.table_id.table_id);
             }
 
-            let earliest_delete_epoch = del_iter.earliest_delete(&iter_key.user_key, epoch);
+            let earliest_range_delete_which_can_see_iter_key =
+                del_iter.earliest_delete_which_can_see_key(&iter_key.user_key, epoch);
 
             // Among keys with same user key, only retain keys which satisfy `epoch` >= `watermark`.
             // If there is no keys whose epoch is equal or greater than `watermark`, keep the latest
@@ -607,7 +608,7 @@ impl Compactor {
             if (epoch <= task_config.watermark && task_config.gc_delete_keys && value.is_delete())
                 || (epoch < task_config.watermark
                     && (watermark_can_see_last_key
-                        || earliest_delete_epoch <= task_config.watermark))
+                        || earliest_range_delete_which_can_see_iter_key <= task_config.watermark))
             {
                 drop = true;
             }
@@ -637,12 +638,21 @@ impl Compactor {
                 continue;
             }
 
-            if matches!(value, HummockValue::Delete) {
-                user_key_last_delete = epoch;
-            } else if earliest_delete_epoch < user_key_last_delete {
-                user_key_last_delete = earliest_delete_epoch;
+            if value.is_delete() {
+                user_key_last_delete_epoch = epoch;
+            } else if earliest_range_delete_which_can_see_iter_key < user_key_last_delete_epoch {
+                debug_assert!(
+                    iter_key.epoch < earliest_range_delete_which_can_see_iter_key
+                        && earliest_range_delete_which_can_see_iter_key
+                            < user_key_last_delete_epoch
+                );
+                user_key_last_delete_epoch = earliest_range_delete_which_can_see_iter_key;
 
-                iter_key.epoch = earliest_delete_epoch;
+                // In each SST, since a union set of delete ranges is constructed and thus original
+                // delete ranges are not used in read, we lose exact information about whether a key
+                // is deleted by a delete range in the same SST. Therefore we need to construct a
+                // corresponding delete key to represent this.
+                iter_key.epoch = earliest_range_delete_which_can_see_iter_key;
                 sst_builder
                     .add_full_key(iter_key, HummockValue::Delete, is_new_user_key)
                     .await?;

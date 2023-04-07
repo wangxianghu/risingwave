@@ -200,7 +200,7 @@ pub async fn put_sst(
 }
 
 /// Generates a test table from the given `kv_iter` and put the kv value to `sstable_store`
-pub async fn gen_test_sstable_inner<B: AsRef<[u8]> + Clone + Default>(
+pub async fn gen_test_sstable_inner<B: AsRef<[u8]> + Clone + Default + Eq>(
     opts: SstableBuilderOptions,
     object_id: HummockSstableObjectId,
     kv_iter: impl Iterator<Item = (FullKey<B>, HummockValue<B>)>,
@@ -246,7 +246,7 @@ pub async fn gen_test_sstable_inner<B: AsRef<[u8]> + Clone + Default>(
             }
         }
 
-        if matches!(value, HummockValue::Delete) {
+        if value.is_delete() {
             user_key_last_delete = epoch;
         } else if earliest_delete_epoch < user_key_last_delete {
             user_key_last_delete = earliest_delete_epoch;
@@ -277,7 +277,7 @@ pub async fn gen_test_sstable_inner<B: AsRef<[u8]> + Clone + Default>(
 }
 
 /// Generate a test table from the given `kv_iter` and put the kv value to `sstable_store`
-pub async fn gen_test_sstable<B: AsRef<[u8]> + Clone + Default>(
+pub async fn gen_test_sstable<B: AsRef<[u8]> + Clone + Default + Eq>(
     opts: SstableBuilderOptions,
     object_id: HummockSstableObjectId,
     kv_iter: impl Iterator<Item = (FullKey<B>, HummockValue<B>)>,
@@ -296,7 +296,7 @@ pub async fn gen_test_sstable<B: AsRef<[u8]> + Clone + Default>(
 }
 
 /// Generate a test table from the given `kv_iter` and put the kv value to `sstable_store`
-pub async fn gen_test_sstable_and_info<B: AsRef<[u8]> + Clone + Default>(
+pub async fn gen_test_sstable_and_info<B: AsRef<[u8]> + Clone + Default + Eq>(
     opts: SstableBuilderOptions,
     object_id: HummockSstableObjectId,
     kv_iter: impl Iterator<Item = (FullKey<B>, HummockValue<B>)>,

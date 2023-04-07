@@ -133,7 +133,12 @@ pub struct Sstable {
     pub id: HummockSstableObjectId,
     pub meta: SstableMeta,
     pub filter_reader: XorFilterReader,
-    pub monotonic_deletes: Vec<(UserKey<Vec<u8>>, HummockEpoch)>,
+    /// Assume that watermark1 is 5, watermark2 is 7, watermark3 is 11, delete ranges
+    /// `{ [0, wmk1) in epoch1, [wmk1, wmk2) in epoch2, [wmk2, wmk3) in epoch3 }`
+    /// can be transformed into events below:
+    /// `{ <0, +epoch1> <wmk1, -epoch1> <wmk1, +epoch2> <wmk2, -epoch2> <wmk2, +epoch3> <wmk3,
+    /// -epoch3> }`
+    pub monotonic_tombstone_events: Vec<(UserKey<Vec<u8>>, HummockEpoch)>,
 }
 
 impl Debug for Sstable {
@@ -152,21 +157,21 @@ impl Sstable {
 
         let (events, _) = DeleteRangeAggregatorBuilder::build_events(&meta.range_tombstone_list);
         let mut epochs = BTreeSet::new();
-        let mut monotonic_deletes = Vec::with_capacity(events.len());
+        let mut monotonic_tombstone_events = Vec::with_capacity(events.len());
         for event in events {
             apply_event(&mut epochs, &event);
-            monotonic_deletes.push((
+            monotonic_tombstone_events.push((
                 event.0,
                 epochs.first().map_or(HummockEpoch::MAX, |epoch| *epoch),
             ));
         }
-        monotonic_deletes.dedup_by_key(|(_, epoch)| *epoch);
+        monotonic_tombstone_events.dedup_by_key(|(_, epoch)| *epoch);
 
         Self {
             id,
             meta,
             filter_reader,
-            monotonic_deletes,
+            monotonic_tombstone_events,
         }
     }
 

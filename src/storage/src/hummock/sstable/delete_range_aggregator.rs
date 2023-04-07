@@ -61,19 +61,33 @@ pub struct DeleteRangeAggregatorBuilder {
     delete_tombstones: Vec<DeleteRangeTombstone>,
 }
 
+pub(crate) struct TombstoneEnterExitEvent {
+    original_position_in_delete_tombstones: usize,
+    tombstone_epoch: HummockEpoch,
+}
+
 type CompactionDeleteRangeEvent = (
+    // event key
     UserKey<Vec<u8>>,
-    Vec<(usize, HummockEpoch)>,
-    Vec<(usize, HummockEpoch)>,
+    // tombstones which exits at the event key
+    Vec<TombstoneEnterExitEvent>,
+    // tombstones which enters at the event key
+    Vec<TombstoneEnterExitEvent>,
 );
 pub(crate) fn apply_event(epochs: &mut BTreeSet<HummockEpoch>, event: &CompactionDeleteRangeEvent) {
-    let (_, delete, insert) = event;
+    let (_, exit, enter) = event;
     // Correct because ranges in an epoch won't intersect.
-    for (_, epoch) in delete {
-        epochs.remove(epoch);
+    for TombstoneEnterExitEvent {
+        tombstone_epoch, ..
+    } in exit
+    {
+        epochs.remove(tombstone_epoch);
     }
-    for (_, epoch) in insert {
-        epochs.insert(*epoch);
+    for TombstoneEnterExitEvent {
+        tombstone_epoch, ..
+    } in enter
+    {
+        epochs.insert(*tombstone_epoch);
     }
 }
 
@@ -130,6 +144,11 @@ impl DeleteRangeAggregatorBuilder {
         })
     }
 
+    /// Assume that watermark1 is 5, watermark2 is 7, watermark3 is 11, delete ranges
+    /// `{ [0, wmk1) in epoch1, [wmk1, wmk2) in epoch2, [wmk2, wmk3) in epoch3 }`
+    /// can be transformed into events below:
+    /// `{ <0, +epoch1> <wmk1, -epoch1> <wmk1, +epoch2> <wmk2, -epoch2> <wmk2, +epoch3> <wmk3,
+    /// -epoch3> }`
     pub(crate) fn build_events(
         delete_tombstones: &Vec<DeleteRangeTombstone>,
     ) -> (Vec<CompactionDeleteRangeEvent>, Vec<usize>) {
@@ -150,23 +169,29 @@ impl DeleteRangeAggregatorBuilder {
         events.sort();
 
         let mut result = Vec::with_capacity(events.len());
-        let mut insert_pos = vec![0; tombstone_len];
+        let mut enter_pos = vec![0; tombstone_len];
         for (user_key, group) in &events.into_iter().group_by(|(user_key, _, _)| *user_key) {
-            let (mut delete, mut insert) = (vec![], vec![]);
+            let (mut exit, mut enter) = (vec![], vec![]);
             for (_, op, index) in group {
                 match op {
-                    0 => delete.push((index, delete_tombstones[index].sequence)),
+                    0 => exit.push(TombstoneEnterExitEvent {
+                        original_position_in_delete_tombstones: index,
+                        tombstone_epoch: delete_tombstones[index].sequence,
+                    }),
                     1 => {
-                        insert.push((index, delete_tombstones[index].sequence));
-                        insert_pos[index] = result.len();
+                        enter.push(TombstoneEnterExitEvent {
+                            original_position_in_delete_tombstones: index,
+                            tombstone_epoch: delete_tombstones[index].sequence,
+                        });
+                        enter_pos[index] = result.len();
                     }
                     _ => unreachable!(),
                 }
             }
-            result.push((user_key.clone(), delete, insert));
+            result.push((user_key.clone(), exit, enter));
         }
 
-        (result, insert_pos)
+        (result, enter_pos)
     }
 
     pub(crate) fn build_for_compaction(
@@ -174,19 +199,24 @@ impl DeleteRangeAggregatorBuilder {
         watermark: HummockEpoch,
         gc_delete_keys: bool,
     ) -> Arc<CompactionDeleteRanges> {
-        let (result, insert_pos) = Self::build_events(&self.delete_tombstones);
+        let (result, enter_pos) = Self::build_events(&self.delete_tombstones);
 
         let result_len = result.len();
+        // `event_seek_mapping` and `hook` are unnecessary so you can ignore them.
         let mut event_seek_mapping = vec![0; result_len + 1];
         let mut hook = result_len;
         event_seek_mapping[result_len] = hook;
-        for (result_idx, (_, delete, _insert)) in result.iter().enumerate().rev() {
+        for (result_idx, (_, exit, _enter)) in result.iter().enumerate().rev() {
             if result_idx < hook {
                 hook = result_idx;
             }
-            for (index, _) in delete {
-                if insert_pos[*index] < hook {
-                    hook = insert_pos[*index];
+            for TombstoneEnterExitEvent {
+                original_position_in_delete_tombstones,
+                ..
+            } in exit
+            {
+                if enter_pos[*original_position_in_delete_tombstones] < hook {
+                    hook = enter_pos[*original_position_in_delete_tombstones];
                 }
             }
             event_seek_mapping[result_idx] = hook;
@@ -267,13 +297,20 @@ impl CompactionDeleteRanges {
         let (events, _) = DeleteRangeAggregatorBuilder::build_events(&tombstones_within_watermark);
         let mut epoch2index = BTreeMap::new();
         let mut is_useful = vec![false; tombstones_within_watermark.len()];
-        for (_, delete, insert) in events {
+        for (_, exit, enter) in events {
             // Correct because ranges in an epoch won't intersect.
-            for (_, epoch) in delete {
-                epoch2index.remove(&epoch);
+            for TombstoneEnterExitEvent {
+                tombstone_epoch, ..
+            } in exit
+            {
+                epoch2index.remove(&tombstone_epoch);
             }
-            for (index, epoch) in insert {
-                epoch2index.insert(epoch, index);
+            for TombstoneEnterExitEvent {
+                original_position_in_delete_tombstones,
+                tombstone_epoch,
+            } in enter
+            {
+                epoch2index.insert(tombstone_epoch, original_position_in_delete_tombstones);
             }
             if let Some((_, index)) = epoch2index.last_key_value() {
                 is_useful[*index] = true;
@@ -363,7 +400,7 @@ impl CompactionDeleteRangeIterator {
 
     /// Return the earliest range-tombstone which deletes target-key.
     /// Target-key must be given in order.
-    pub(crate) fn earliest_delete(
+    pub(crate) fn earliest_delete_which_can_see_key(
         &mut self,
         target_user_key: &UserKey<&[u8]>,
         epoch: HummockEpoch,
@@ -409,14 +446,14 @@ impl SstableDeleteRangeIterator {
 
 impl DeleteRangeIterator for SstableDeleteRangeIterator {
     fn next_user_key(&self) -> UserKey<&[u8]> {
-        self.table.value().monotonic_deletes[self.next_idx]
+        self.table.value().monotonic_tombstone_events[self.next_idx]
             .0
             .as_ref()
     }
 
     fn current_epoch(&self) -> HummockEpoch {
         if self.next_idx > 0 {
-            self.table.value().monotonic_deletes[self.next_idx - 1].1
+            self.table.value().monotonic_tombstone_events[self.next_idx - 1].1
         } else {
             HummockEpoch::MAX
         }
@@ -434,12 +471,12 @@ impl DeleteRangeIterator for SstableDeleteRangeIterator {
         self.next_idx = self
             .table
             .value()
-            .monotonic_deletes
+            .monotonic_tombstone_events
             .partition_point(|(user_key, _)| user_key.as_ref().le(&target_user_key));
     }
 
     fn is_valid(&self) -> bool {
-        self.next_idx < self.table.value().monotonic_deletes.len()
+        self.next_idx < self.table.value().monotonic_tombstone_events.len()
     }
 }
 
@@ -448,12 +485,12 @@ pub fn get_min_delete_range_epoch_from_sstable(
     query_user_key: &UserKey<&[u8]>,
 ) -> HummockEpoch {
     let idx = table
-        .monotonic_deletes
+        .monotonic_tombstone_events
         .partition_point(|(user_key, _)| user_key.as_ref().le(query_user_key));
     if idx == 0 {
         HummockEpoch::MAX
     } else {
-        table.monotonic_deletes[idx - 1].1
+        table.monotonic_tombstone_events[idx - 1].1
     }
 }
 
