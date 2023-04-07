@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use num256::Int256;
 use super::HashKey;
 use crate::array::serial_array::Serial;
 use crate::hash;
-use crate::types::DataType;
+use crate::types::{num256, DataType};
 
 /// An enum to help to dynamically dispatch [`HashKey`] template.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -88,7 +89,7 @@ fn hash_key_size(data_type: &DataType) -> HashKeySize {
         DataType::Int16 => HashKeySize::Fixed(size_of::<i16>()),
         DataType::Int32 => HashKeySize::Fixed(size_of::<i32>()),
         DataType::Int64 => HashKeySize::Fixed(size_of::<i64>()),
-        DataType::Int256 => todo!(),
+        DataType::Int256 => HashKeySize::Fixed(Int256::size()),
         DataType::Serial => HashKeySize::Fixed(size_of::<Serial>()),
         DataType::Float32 => HashKeySize::Fixed(size_of::<F32>()),
         DataType::Float64 => HashKeySize::Fixed(size_of::<F64>()),
