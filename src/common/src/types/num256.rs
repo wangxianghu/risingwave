@@ -36,6 +36,7 @@ use crate::types::{to_text, DataType, Scalar, ScalarRef};
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Default, Hash)]
 pub struct Int256(Box<I256>);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Int256Ref<'a>(pub &'a I256);
 
@@ -219,11 +220,11 @@ impl FromPrimitive for Int256 {
 
 impl ToPrimitive for Int256 {
     fn to_i64(&self) -> Option<i64> {
-        (*self.0 <= i256::from(i64::MAX)).then_some(self.0.as_i64())
+        (*self.0 <= I256::from(i64::MAX)).then_some(self.0.as_i64())
     }
 
     fn to_u64(&self) -> Option<u64> {
-        (*self.0 <= i256::from(u64::MAX)).then_some(self.0.as_u64())
+        (*self.0 <= I256::from(u64::MAX)).then_some(self.0.as_u64())
     }
 
     // Special handling for 128 bits, the default action of `ToPrimitive` is to convert self to
@@ -315,7 +316,7 @@ impl CheckedNeg for Int256 {
 
 impl Zero for Int256 {
     fn zero() -> Self {
-        Int256::from(i256::new(0))
+        Int256::from(I256::new(0))
     }
 
     fn is_zero(&self) -> bool {
@@ -323,12 +324,6 @@ impl Zero for Int256 {
     }
 }
 
-impl Int256Ref<'_> {
-    pub fn into_arrow(self) -> arrow_buffer::i256 {
-        let buffer = self.to_be_bytes();
-        arrow_buffer::i256::from_be_bytes(buffer)
-    }
-}
 impl<'a> From<Int256Ref<'a>> for arrow_buffer::i256 {
     fn from(val: Int256Ref<'a>) -> Self {
         let buffer = val.to_be_bytes();
